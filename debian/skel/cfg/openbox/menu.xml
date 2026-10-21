@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_menu xmlns="http://openbox.org/3.4/menu">
+  <menu id="root-menu" label="Infynit AI">
+    <item label="Aplicativos (buscar)"><action name="Execute"><command>ambxst-menu</command></action></item>
+    <item label="Categorias"><action name="Execute"><command>ambxst-categories</command></action></item>
+    <separator/>
+    <item label="Terminal"><action name="Execute"><command>xfce4-terminal</command></action></item>
+    <item label="Arquivos"><action name="Execute"><command>pcmanfm</command></action></item>
+    <item label="Navegador (Firefox)"><action name="Execute"><command>ambxst-browser</command></action></item>
+    <item label="Brave"><action name="Execute"><command>ambxst-brave</command></action></item>
+    <menu id="ferramentas-menu" label="Ferramentas (IA e mídia)">
+      <item label="Claude Code"><action name="Execute"><command>ambxst-apps claude-code</command></action></item>
+      <item label="OpenCode"><action name="Execute"><command>ambxst-apps opencode</command></action></item>
+      <item label="Shannon"><action name="Execute"><command>ambxst-apps shannon</command></action></item>
+      <item label="GitBot"><action name="Execute"><command>ambxst-apps gitbot</command></action></item>
+      <item label="Filmes, Séries e Animes"><action name="Execute"><command>ambxst-apps media</command></action></item>
+    </menu>
+    <menu id="seguranca-menu" label="Segurança (OSINT, Red/Blue/Purple Team)">
+      <item label="OSINT"><action name="Execute"><command>ambxst-apps osint</command></action></item>
+      <item label="Red Team"><action name="Execute"><command>ambxst-apps redteam</command></action></item>
+      <item label="Blue Team"><action name="Execute"><command>ambxst-apps blueteam</command></action></item>
+      <item label="Purple Team"><action name="Execute"><command>ambxst-apps purpleteam</command></action></item>
+    </menu>
+    <item label="Compartilhar com TwinDesk"><action name="Execute"><command>ambxst-twindesk</command></action></item>
+    <item label="Lixeira"><action name="Execute"><command>ambxst-trash</command></action></item>
+    <item label="Editor de texto"><action name="Execute"><command>mousepad</command></action></item>
+    <separator/>
+    <item label="Papel de parede"><action name="Execute"><command>ambxst-wallpaper</command></action></item>
+    <item label="Configurações"><action name="Execute"><command>ambxst-settings</command></action></item>
+    <item label="Painel Infynit AI"><action name="Execute"><command>ambxst-panel</command></action></item>
+    <separator/>
+    <item label="Energia (reiniciar/encerrar sessão)"><action name="Execute"><command>ambxst-power</command></action></item>
+  </menu>
+</openbox_menu>

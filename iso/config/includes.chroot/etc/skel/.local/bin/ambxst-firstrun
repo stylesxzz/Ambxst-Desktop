@@ -1,0 +1,13 @@
+#!/bin/bash
+# ambxst-firstrun - roda no início de cada sessão do PC:
+#  1) se o usuário NÃO se chama "ambxst", troca /home/ambxst por $HOME nos arquivos de configuração;
+#  2) fora do modo live, remove o atalho "Instalar Infynit AI" da área de trabalho.
+MARK="$HOME/.config/ambxst/.firstrun-done"
+mkdir -p "$HOME/.config/ambxst"
+if [ "$HOME" != "/home/ambxst" ] && [ ! -f "$MARK" ]; then
+  grep -rIl '/home/ambxst' "$HOME/.config" "$HOME/.local/share/applications" "$HOME/Desktop" 2>/dev/null \
+    | while IFS= read -r f; do sed -i "s|/home/ambxst|$HOME|g" "$f"; done
+fi
+touch "$MARK"
+grep -qw 'boot=live' /proc/cmdline 2>/dev/null || rm -f "$HOME/Desktop/Instalar-Infynit-AI.desktop"
+exit 0

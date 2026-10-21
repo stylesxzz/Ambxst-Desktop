@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Purple Team
+Comment=Lista de ferramentas Purple Team (Sigma CLI, DumpsterFire, Atomic Red Team) - escolha uma para instalar e abrir
+Exec=/home/ambxst/.local/bin/ambxst-apps purpleteam
+Icon=/home/ambxst/.local/share/ambxst/icons/ambxst-purpleteam.svg
+Terminal=false
+Categories=Security;Development;
+Keywords=purpleteam;deteccao;sigma;dumpsterfire;atomic;mitre;attack;

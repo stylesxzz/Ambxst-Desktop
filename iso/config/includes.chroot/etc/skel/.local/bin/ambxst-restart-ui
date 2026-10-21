@@ -1,0 +1,7 @@
+#!/bin/bash
+# ambxst-restart-ui - reinicia barras, ícones do desktop e compositor sem fechar seus aplicativos.
+for p in tint2 pcmanfm dunst picom feh; do pkill -u "$(id -u)" -x "$p" 2>/dev/null; done
+pkill -u "$(id -u)" -f "ambxst-panel" 2>/dev/null
+openbox --reconfigure 2>/dev/null
+sleep 1
+setsid "$HOME/.local/bin/ambxst-autostart" >/dev/null 2>&1 &

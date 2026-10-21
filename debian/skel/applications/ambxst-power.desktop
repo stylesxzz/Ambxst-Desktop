@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Energia (sessão)
+Comment=Energia (sessão) (Infynit AI)
+Exec=/home/ambxst/.local/bin/ambxst-power
+Icon=system-shutdown
+Terminal=false
+Categories=System;

@@ -1,0 +1,11 @@
+#!/bin/bash
+# ambxst-power - reinicia ou encerra a SESSÃO GRÁFICA (não desliga o Android).
+pkill -u "$(id -u)" -x rofi 2>/dev/null
+choice=$(printf '%s\n' "Bloquear tela" "Reiniciar sessão gráfica" "Encerrar sessão (voltar ao Termux)" "Cancelar" \
+  | rofi -dmenu -i -no-custom -p "Energia" -theme-str 'window{width:480px;} listview{lines:4;}')
+case "$choice" in
+  Bloquear*) exec "$HOME/.local/bin/ambxst-login" --lock ;;
+  Reiniciar*) touch /tmp/ambxst-restart; openbox --exit ;;
+  Encerrar*)  openbox --exit ;;
+  *) exit 0 ;;
+esac

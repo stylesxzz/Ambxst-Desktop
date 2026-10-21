@@ -1,0 +1,24 @@
+# ===== Perfil LITE: o essencial =====
+firefox-esr
+firefox-esr-l10n-pt-br
+evince
+eog
+galculator
+xarchiver
+mpv
+ffmpeg
+yt-dlp
+fzf
+jq
+openssl
+patch
+html-xml-utils
+gparted
+gnome-disk-utility
+btop
+fastfetch
+build-essential
+python3-pip
+python3-venv
+nodejs
+npm

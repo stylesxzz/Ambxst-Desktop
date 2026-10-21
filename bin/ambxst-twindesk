@@ -1,0 +1,50 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# ambxst-twindesk - verifica e inicia a instalação opcional do TwinDesk Android.
+set -u
+LIB="${AMBXST_HOME:-$HOME/.ambxst}/lib/common.sh"
+[ -f "$LIB" ] && . "$LIB"
+HOME_AMBXST="${AMBXST_HOME:-$HOME/.ambxst}"
+APK="$HOME_AMBXST/vendor/TwinDesk-2.0.1-full.apk"
+
+usage() {
+  cat <<'U'
+Uso: ambxst-twindesk [status|install|help]
+
+status   mostra arquitetura e se o APK TwinDesk está disponível
+install  abre o instalador Android para o APK fornecido
+help     mostra esta ajuda
+
+O TwinDesk para Linux é instalado no PC, não dentro do Debian ARM64 do Infynit AI.
+U
+}
+
+case "${1:-status}" in
+  help|-h|--help) usage; exit 0 ;;
+  status)
+    echo "Infynit AI ↔ TwinDesk"
+    echo "  arquitetura Android/Termux: $(uname -m 2>/dev/null || echo desconhecida)"
+    if [ "$(uname -m 2>/dev/null || true)" = "aarch64" ]; then
+      echo "  TwinDesk Linux .deb amd64: incompatível com este ambiente ARM64"
+    fi
+    if [ -f "$APK" ]; then
+      echo "  TwinDesk Android APK: disponível ($(du -h "$APK" | awk '{print $1}'))"
+      echo "  instalar com: ambxst-twindesk install"
+    else
+      echo "  TwinDesk Android APK: não encontrado"
+      echo "  reinstale o projeto com --twindesk ou copie o APK para $APK"
+    fi
+    echo "  TwinDesk Linux deve ser instalado no PC; pareie os dois na mesma rede."
+    ;;
+  install)
+    [ -f "$APK" ] || { echo "APK não encontrado: $APK" >&2; echo "Rode novamente bash install-ambxst.sh --twindesk" >&2; exit 1; }
+    if command -v termux-open >/dev/null 2>&1; then
+      termux-open "$APK"
+      echo "Instalador Android aberto. Confirme a instalação no Android."
+    else
+      echo "termux-open não está disponível neste Termux." >&2
+      echo "Abra manualmente este arquivo no Android: $APK" >&2
+      exit 1
+    fi
+    ;;
+  *) echo "Opção inválida: $1" >&2; usage >&2; exit 2 ;;
+esac

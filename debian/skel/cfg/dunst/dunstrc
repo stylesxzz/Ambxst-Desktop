@@ -1,0 +1,42 @@
+# Infynit AI - notificações (dunst)
+[global]
+    font = JetBrains Mono 10
+    origin = top-right
+    width = 360
+    notification_limit = 4
+    gap_size = 6
+    padding = 12
+    horizontal_padding = 14
+    frame_width = 1
+    corner_radius = 16
+    transparency = 12
+    markup = full
+    format = "<b>%s</b>\n%b"
+    alignment = left
+    icon_position = left
+    max_icon_size = 40
+    icon_theme = "Papirus-Dark"
+    enable_recursive_icon_lookup = true
+    sticky_history = yes
+    history_length = 30
+    mouse_left_click = close_current
+    mouse_middle_click = do_action, close_current
+    mouse_right_click = close_all
+
+[urgency_low]
+    background = "#181111e6"
+    foreground = "#a58f8a"
+    frame_color = "#3a2420"
+    timeout = 5
+
+[urgency_normal]
+    background = "#181111e6"
+    foreground = "#f5e6e2"
+    frame_color = "#ff8f7a"
+    timeout = 8
+
+[urgency_critical]
+    background = "#2a0d0be6"
+    foreground = "#ffffff"
+    frame_color = "#e0201b"
+    timeout = 0

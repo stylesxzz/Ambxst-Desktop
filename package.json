@@ -1,0 +1,15 @@
+{
+  "name": "infynit-ai",
+  "version": "1.0.0",
+  "description": "Desktop Linux completo no Android: Debian ARM64 + Openbox no Termux, exibido pelo Termux:X11. Instalação com um comando.",
+  "keywords": ["termux", "android", "debian", "proot-distro", "openbox", "termux-x11", "desktop", "linux"],
+  "license": "MIT",
+  "homepage": "https://github.com/stylesxzz/Infynit-AI#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/stylesxzz/Infynit-AI.git" },
+  "bugs": { "url": "https://github.com/stylesxzz/Infynit-AI/issues" },
+  "bin": { "infynit-ai": "cli/infynit-ai.js" },
+  "files": ["cli", "bin", "lib", "debian", "docs", "vendor", "install-ambxst.sh", "README.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "os": ["android", "linux"],
+  "scripts": { "test": "node cli/infynit-ai.js --version && node cli/infynit-ai.js --help > /dev/null" }
+}

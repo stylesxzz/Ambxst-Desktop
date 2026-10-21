@@ -1,0 +1,71 @@
+#!/bin/bash
+# ambxst-autostart - sobe barra, dock, desktop, notificações. Roda dentro da sessão.
+CONF="$HOME/.config/ambxst/ambxst.conf"
+# shellcheck source=/dev/null
+[ -f "$CONF" ] && . "$CONF"
+LOGD="$HOME/.cache/ambxst"; mkdir -p "$LOGD"
+UID_=$(id -u)
+
+echo "[autostart] aguardando o gerenciador de janelas..."
+for _ in $(seq 1 60); do
+  xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q 'window id' && break
+  sleep 0.25
+done
+xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q 'window id' || echo "[autostart] AVISO: Openbox não respondeu"
+
+xsetroot -solid "#0d0909" 2>/dev/null
+xsetroot -cursor_name left_ptr 2>/dev/null
+xset s off s noblank -dpms 2>/dev/null
+
+# Portão de login: no 1º uso pede para criar usuário/senha; depois, pede a senha a cada sessão.
+# Fica bloqueado até o ambxst-login terminar (sucesso) ou falhar; só então o resto do desktop sobe.
+# Se o GTK3 do Python não estiver disponível (instalação quebrada), pula o portão em vez de travar
+# a sessão inteira - o resto do desktop continua funcionando normalmente, só sem o login.
+if [ -x "$HOME/.local/bin/ambxst-login" ] \
+   && python3 -c "import gi; gi.require_version('Gtk','3.0'); from gi.repository import Gtk" >/dev/null 2>&1; then
+  echo "[autostart] aguardando login..."
+  if ! "$HOME/.local/bin/ambxst-login" >>"$LOGD/login.log" 2>&1; then
+    echo "[autostart] login não concluído; encerrando a sessão"
+    zenity --error --title="Infynit AI" --text="Não foi possível entrar. A sessão será encerrada." --width=320 2>/dev/null &
+    sleep 3
+    openbox --exit 2>/dev/null
+    exit 1
+  fi
+  echo "[autostart] login ok"
+else
+  echo "[autostart] ambxst-login/GTK3 indisponível; pulando o portão de login"
+fi
+
+run_once() { # padrão_pgrep comando...
+  local pat="$1"; shift
+  pgrep -u "$UID_" -f "$pat" >/dev/null 2>&1 && return 0
+  "$@" >>"$LOGD/autostart.log" 2>&1 &
+}
+
+WALL_STATE="$HOME/.config/ambxst/wallpaper"
+WALL="$HOME/Pictures/Wallpapers/infynit.jpg"
+[ -s "$WALL_STATE" ] && [ -f "$(cat "$WALL_STATE")" ] && WALL="$(cat "$WALL_STATE")"
+
+feh_wall() { feh --no-fehbg --bg-fill "$WALL" >>"$LOGD/autostart.log" 2>&1; }
+
+if [ "${AMBXST_ECO:-0}" = 1 ]; then
+  feh_wall
+else
+  run_once "pcmanfm --desktop" pcmanfm --desktop --profile default
+  for _ in $(seq 1 12); do pgrep -u "$UID_" -f "pcmanfm --desktop" >/dev/null 2>&1 && break; sleep 0.5; done
+  pgrep -u "$UID_" -f "pcmanfm --desktop" >/dev/null 2>&1 || { echo "[autostart] pcmanfm --desktop falhou; usando feh"; feh_wall; }
+fi
+
+run_once "dunst" dunst
+run_once "tint2 -c .*top.tint2rc" tint2 -c "$HOME/.config/tint2/top.tint2rc"
+run_once "tint2 -c .*dock.tint2rc" tint2 -c "$HOME/.config/tint2/dock.tint2rc"
+
+if [ "${AMBXST_ECO:-0}" != 1 ] && [ "${AMBXST_PICOM:-1}" = 1 ] && command -v picom >/dev/null 2>&1; then
+  run_once "picom" picom --config "$HOME/.config/picom/picom.conf"
+  sleep 2
+  pgrep -u "$UID_" -x picom >/dev/null 2>&1 || echo "[autostart] picom não ficou ativo (sem compositor): efeitos de transparência/cantos desativados"
+fi
+
+sleep 1
+notify-send -i start-here "Infynit AI" "Sessão iniciada. Toque em AMBXST (barra superior) para abrir o painel." 2>/dev/null
+echo "[autostart] concluído"

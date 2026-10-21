@@ -1,0 +1,33 @@
+#!/bin/bash
+# infynit-session - sessão Infynit AI no PC (chamada pelo LightDM via /usr/share/xsessions/infynit-ai.desktop)
+export XDG_CURRENT_DESKTOP=Openbox XDG_SESSION_DESKTOP=openbox GDK_BACKEND=x11 NO_AT_BRIDGE=1
+export PATH="$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/.cache/ambxst"
+LOG="$HOME/.cache/ambxst/session.log"
+[ -f "$LOG" ] && [ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -gt 1048576 ] && mv -f "$LOG" "$LOG.1"
+exec >>"$LOG" 2>&1
+echo "=== $(date '+%F %T') sessão Infynit AI (PC) ==="
+
+# Ajusta caminhos (/home/ambxst -> $HOME) e limpa o que só vale no modo live.
+[ -x "$HOME/.local/bin/ambxst-firstrun" ] && "$HOME/.local/bin/ambxst-firstrun"
+
+CONF="$HOME/.config/ambxst/ambxst.conf"
+# shellcheck source=/dev/null
+[ -f "$CONF" ] && . "$CONF"
+
+# Barramento de sessão do D-Bus (o systemd --user costuma já fornecer um).
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
+  exec dbus-run-session -- "$0" "$@"
+fi
+
+bg() { command -v "$1" >/dev/null 2>&1 && ( "$@" >/dev/null 2>&1 & ); return 0; }
+bg lxpolkit                      # pedidos de senha gráficos (pkexec)
+bg nm-applet                     # rede na bandeja
+bg blueman-applet                # Bluetooth na bandeja
+bg udiskie --tray                # monta pendrives/discos automaticamente
+bg xfce4-power-manager           # bateria, brilho, suspensão
+bg xss-lock -- "$HOME/.local/bin/ambxst-login" --lock   # bloqueia a tela ao suspender / protetor de tela
+command -v numlockx >/dev/null 2>&1 && numlockx on
+
+"$HOME/.local/bin/ambxst-autostart" &
+exec openbox --config-file "$HOME/.config/openbox/rc.xml"

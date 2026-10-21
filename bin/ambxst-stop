@@ -1,0 +1,36 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# ambxst-stop - encerra a sessão com segurança. (roda no TERMUX)
+set -u
+LIB="${AMBXST_HOME:-$HOME/.ambxst}/lib/common.sh"
+[ -f "$LIB" ] || { echo "Infynit AI não instalado." >&2; exit 1; }
+# shellcheck source=/dev/null
+. "$LIB"
+
+SP=$(session_pid || true)
+if [ -n "$SP" ]; then
+  info "Pedindo ao Openbox para encerrar a sessão..."
+  timeout 20 proot-distro login "$AMBXST_DISTRO" --user "$AMBXST_USER" --shared-tmp -- \
+    env "DISPLAY=$AMBXST_DISPLAY" openbox --exit >> "$AMBXST_LOGS/stop.log" 2>&1 \
+    || warn "Não consegui falar com o Openbox (talvez já tenha fechado)."
+  for _ in $(seq 1 24); do pid_alive "$SP" || break; sleep 0.5; done
+  if pid_alive "$SP"; then
+    warn "Sessão não encerrou sozinha; finalizando apenas a árvore dela (PID $SP)."
+    kill_tree "$SP" TERM; sleep 2
+    pid_alive "$SP" && kill_tree "$SP" KILL
+  fi
+  rm -f "$AMBXST_RUN/supervisor.pid"
+  RJ=$(read_pid "$AMBXST_RUN/rootjobs.pid"); pid_alive "$RJ" && kill_tree "$RJ" TERM
+  rm -f "$AMBXST_RUN/rootjobs.pid"
+  ok "Sessão Debian encerrada."
+else
+  info "Nenhuma sessão Infynit AI ativa."
+fi
+
+stop_x11
+if x11_running; then
+  warn "Há um servidor Termux:X11 que não foi iniciado pelo Infynit AI; deixei como está."
+else
+  ok "Servidor Termux:X11 parado."
+fi
+stop_pulse
+exit 0

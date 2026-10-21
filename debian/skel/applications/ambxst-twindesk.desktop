@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Compartilhar com TwinDesk
+Comment=Compartilhe tela, apps, arquivos e área de transferência com um PC
+Exec=/home/ambxst/.local/bin/ambxst-twindesk
+Icon=network-workgroup
+Terminal=false
+Categories=Network;Utility;

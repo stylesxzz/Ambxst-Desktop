@@ -1,0 +1,705 @@
+#!/bin/bash
+# ambxst-apps - instala e abre as ferramentas extras do Infynit AI. (roda DENTRO do Debian)
+#
+#   ambxst-apps claude-code   Claude Code (CLI da Anthropic)
+#   ambxst-apps opencode      OpenCode (agente de código open source)
+#   ambxst-apps shannon       Shannon (pentester de IA da Keygraph)
+#   ambxst-apps gitbot        GitBot (só instala se Claude Code ou OpenCode já existir)
+#   ambxst-apps media         Filmes, séries e animes (mpv + ani-cli + lobster)
+#   ambxst-apps status        mostra o que está instalado
+#
+# Sem argumento extra: se a ferramenta já está instalada, abre; senão, instala (num terminal).
+# Opções: --install (força instalar/atualizar)  --run (só abrir)  --status
+set -u
+
+export PATH="$HOME/.local/bin:$HOME/.local/node/bin:$HOME/.opencode/bin:$PATH"
+SELF="$HOME/.local/bin/ambxst-apps"
+PROJECTS="${AMBXST_PROJECTS:-$HOME/Projects}"
+NODE_MAJOR=22
+GITBOT_PORT="${GITBOT_PORT:-3000}"
+TMPD=""
+
+if [ -t 1 ]; then B=$'\033[1m'; R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; C=$'\033[36m'; D=$'\033[2m'; Z=$'\033[0m'
+else B=""; R=""; G=""; Y=""; C=""; D=""; Z=""; fi
+info() { printf '%s[i]%s %s\n' "$C" "$Z" "$*"; }
+ok()   { printf '%s[ok]%s %s\n' "$G" "$Z" "$*"; }
+warn() { printf '%s[!]%s %s\n' "$Y" "$Z" "$*" >&2; }
+err()  { printf '%s[x]%s %s\n' "$R" "$Z" "$*" >&2; }
+notify() { notify-send -i "${3:-dialog-information}" "$1" "$2" 2>/dev/null || true; }
+
+cleanup() { [ -n "$TMPD" ] && rm -rf "$TMPD"; return 0; }
+trap cleanup EXIT
+mktmp() { [ -n "$TMPD" ] || TMPD=$(mktemp -d); }
+
+ask_yes() { # pergunta [padrão s|n]
+  local def="${2:-s}" ans hint="[S/n]"
+  [ "$def" = n ] && hint="[s/N]"
+  read -r -p "$1 $hint " ans || return 1
+  ans="${ans:-$def}"
+  case "$ans" in s|S|y|Y|sim|Sim) return 0 ;; *) return 1 ;; esac
+}
+
+# ------------------------------------------------------------------ nomes e estado
+canon() {
+  case "$1" in
+    claude|claude-code|claudecode|claude_code) echo claude-code; return ;;
+    opencode|open-code|open_code) echo opencode; return ;;
+    shannon) echo shannon; return ;;
+    gitbot|git-bot) echo gitbot; return ;;
+    media|filmes|assistir|streaming) echo media; return ;;
+    osint) echo osint; return ;;
+    redteam|red-team|red_team) echo redteam; return ;;
+    blueteam|blue-team|blue_team) echo blueteam; return ;;
+    purpleteam|purple-team|purple_team) echo purpleteam; return ;;
+  esac
+  if sec_tool_exists "$1"; then echo "$1"; return; fi
+  echo ""
+}
+
+title_of() {
+  if is_category "$1"; then category_label_of "$1"; return; fi
+  if sec_tool_exists "$1"; then sec_field "$1" 2; return; fi
+  case "$1" in
+    claude-code) echo "Claude Code" ;;
+    opencode) echo "OpenCode" ;;
+    shannon) echo "Shannon" ;;
+    gitbot) echo "GitBot" ;;
+    media) echo "Filmes, Séries e Animes" ;;
+  esac
+}
+
+npm_dir() { printf '%s/.local/lib/node_modules/%s' "$HOME" "$1"; }
+npm_has() { [ -f "$(npm_dir "$1")/package.json" ]; }
+
+# nome do executável declarado no package.json de um pacote npm global
+npm_bin_name() { # pacote  padrão
+  local pj; pj="$(npm_dir "$1")/package.json"
+  local n=""
+  if [ -f "$pj" ] && command -v node >/dev/null 2>&1; then
+    n=$(node -e 'const p=require(process.argv[1]);const b=p.bin;if(typeof b==="string")console.log(p.name.split("/").pop());else if(b)console.log(Object.keys(b)[0]);' "$pj" 2>/dev/null)
+  fi
+  printf '%s' "${n:-$2}"
+}
+
+have_agent() { command -v claude >/dev/null 2>&1 || command -v opencode >/dev/null 2>&1; }
+
+is_installed() {
+  if is_category "$1"; then
+    local id all=1
+    while IFS= read -r id; do [ -z "$id" ] && continue; sec_is_installed "$id" || all=0; done <<< "$(sec_ids_in_category "$(category_label_of "$1")")"
+    [ "$all" = 1 ]
+    return
+  fi
+  if sec_tool_exists "$1"; then sec_is_installed "$1"; return; fi
+  case "$1" in
+    claude-code) command -v claude >/dev/null 2>&1 ;;
+    opencode) command -v opencode >/dev/null 2>&1 ;;
+    shannon) npm_has "@keygraph/shannon" ;;
+    gitbot) command -v gitbot >/dev/null 2>&1 || npm_has "@gitbot-hq/gitbot" ;;
+    media) command -v mpv >/dev/null 2>&1 && command -v fzf >/dev/null 2>&1 \
+             && command -v ani-cli >/dev/null 2>&1 && command -v lobster >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+show_status() {
+  local id
+  for id in claude-code opencode shannon gitbot media; do
+    if is_installed "$id"; then printf '  %s✔%s %s\n' "$G" "$Z" "$(title_of "$id")"
+    else printf '  %s✘%s %s %s(não instalado)%s\n' "$R" "$Z" "$(title_of "$id")" "$D" "$Z"; fi
+  done
+  echo
+  echo "  Segurança (OSINT / Red Team / Blue Team / Purple Team):"
+  printf '%s\n' "$SEC_TOOLS_SPEC" | awk -F'|' 'NF{print $1}' | while IFS= read -r id; do
+    if sec_is_installed "$id"; then printf '    %s✔%s %s %s(%s)%s\n' "$G" "$Z" "$(sec_field "$id" 2)" "$D" "$(sec_field "$id" 3)" "$Z"
+    else printf '    %s✘%s %s %s(%s, não instalado)%s\n' "$R" "$Z" "$(sec_field "$id" 2)" "$D" "$(sec_field "$id" 3)" "$Z"; fi
+  done
+}
+
+# ------------------------------------------------------------------ pré-requisitos
+need_net() {
+  curl -fsI --max-time 12 https://github.com >/dev/null 2>&1 && return 0
+  err "Sem internet (não consegui falar com github.com). Conecte-se e tente de novo."
+  return 1
+}
+
+check_space() { # MB mínimos
+  local free; free=$(df -Pm "$HOME" 2>/dev/null | awk 'NR==2{print $4}')
+  if [ -n "${free:-}" ] && [ "$free" -lt "$1" ]; then
+    warn "Só ${free} MB livres; esta instalação precisa de ~$1 MB. Libere espaço se falhar."
+  fi
+}
+
+node_ok() {
+  command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 || return 1
+  local maj; maj=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+  [ "${maj:-0}" -ge 18 ] 2>/dev/null
+}
+
+# Node.js 18+ sem root: baixa o tarball oficial (com checagem SHA-256) para ~/.local/node
+ensure_node() {
+  node_ok && return 0
+  info "Node.js 18+ não encontrado. Instalando o Node.js $NODE_MAJOR (LTS) em ~/.local/node, sem root..."
+  need_net || return 1
+  check_space 600
+  local na base line file sum
+  case "$(uname -m)" in
+    aarch64|arm64) na=arm64 ;;
+    x86_64|amd64) na=x64 ;;
+    armv7l|armv8l) na=armv7l ;;
+    *) err "Arquitetura $(uname -m) sem build oficial do Node."; return 1 ;;
+  esac
+  base="https://nodejs.org/dist/latest-v${NODE_MAJOR}.x"
+  mktmp
+  curl -fsSL "$base/SHASUMS256.txt" -o "$TMPD/SHASUMS256.txt" || { err "Não consegui baixar a lista de versões do Node."; return 1; }
+  line=$(grep -E " node-v[0-9.]+-linux-${na}\.tar\.gz$" "$TMPD/SHASUMS256.txt" | head -n1)
+  [ -n "$line" ] || { err "Build do Node para linux-$na não encontrado."; return 1; }
+  sum=${line%% *}; file=${line##* }
+  info "Baixando $file ..."
+  curl -fL --progress-bar "$base/$file" -o "$TMPD/$file" || { err "Download do Node falhou."; return 1; }
+  echo "$sum  $TMPD/$file" | sha256sum -c - >/dev/null 2>&1 || { err "Checksum do Node não confere; abortei por segurança."; return 1; }
+  rm -rf "$HOME/.local/node.new"; mkdir -p "$HOME/.local/node.new" "$HOME/.local/bin"
+  tar -xzf "$TMPD/$file" -C "$HOME/.local/node.new" --strip-components=1 || { err "Falha ao extrair o Node."; return 1; }
+  rm -rf "$HOME/.local/node"; mv "$HOME/.local/node.new" "$HOME/.local/node"
+  local b
+  for b in node npm npx corepack; do
+    [ -e "$HOME/.local/node/bin/$b" ] && ln -sf "$HOME/.local/node/bin/$b" "$HOME/.local/bin/$b"
+  done
+  hash -r
+  node_ok && ok "Node.js $(node -v) instalado." || { err "Node instalado mas não executa neste ambiente."; return 1; }
+}
+
+npm_g() { # pacote  (instala global em ~/.local, sem root)
+  ensure_node || return 1
+  mkdir -p "$HOME/.local/bin"
+  info "npm install -g $1 ..."
+  npm install -g --prefix "$HOME/.local" --no-fund --no-audit "$1"
+}
+
+ensure_pip() {
+  command -v python3 >/dev/null 2>&1 || { err "python3 não encontrado."; return 1; }
+  python3 -m pip --version >/dev/null 2>&1 && return 0
+  info "pip não encontrado; instalando python3-pip..."
+  root_apt python3-pip python3-venv
+}
+
+# instala um pacote Python para o usuário (~/.local/bin). Debian novo exige --break-system-packages;
+# em pip mais antigo essa flag não existe, então tenta com ela e cai para sem ela se for rejeitada.
+pip_user() { # pacote
+  ensure_pip || return 1
+  mkdir -p "$HOME/.local/bin"
+  info "pip install --user $1 ..."
+  local out rc
+  out=$(python3 -m pip install --user --break-system-packages --no-input "$1" 2>&1); rc=$?
+  if [ "$rc" != 0 ] && printf '%s' "$out" | grep -qi "no such option\|unrecognized arguments"; then
+    out=$(python3 -m pip install --user --no-input "$1" 2>&1); rc=$?
+  fi
+  [ "$rc" = 0 ] || { printf '%s\n' "$out" >&2; return "$rc"; }
+  return 0
+}
+
+TOOLS_DIR="$HOME/.local/share/ambxst/tools"
+
+# clona (ou atualiza) um repositório git em $TOOLS_DIR/<pasta> e instala requirements.txt se houver
+git_tool() { # url  pasta
+  need_net || return 1
+  mkdir -p "$TOOLS_DIR"
+  local dir="$TOOLS_DIR/$2"
+  if [ -d "$dir/.git" ]; then
+    info "Atualizando $2 (git pull)..."
+    git -C "$dir" pull --ff-only || warn "git pull falhou; mantendo a cópia existente."
+  else
+    info "Clonando $2..."
+    git clone --depth 1 "$1" "$dir" || { err "Falha ao clonar $1"; return 1; }
+  fi
+  if [ -f "$dir/requirements.txt" ]; then
+    ensure_pip || return 1
+    info "Instalando dependências Python de $2..."
+    python3 -m pip install --user --break-system-packages --no-input -r "$dir/requirements.txt" 2>/dev/null \
+      || python3 -m pip install --user --no-input -r "$dir/requirements.txt" \
+      || warn "Algumas dependências de $2 podem não ter instalado."
+  fi
+}
+
+# ------------------------------------------------------------------ ferramentas de segurança
+# id|Título|categoria|tipo(apt|pip|git|lib)|pacote-ou-repo|binário-ou-arquivo|dica de uso|nota (opcional)
+SEC_TOOLS_SPEC='
+osint-theharvester|theHarvester|OSINT|apt|theharvester|theHarvester|theHarvester -d exemplo.com -b all|
+osint-sherlock|Sherlock|OSINT|pip|sherlock-project|sherlock|sherlock nome_de_usuario|
+osint-holehe|Holehe|OSINT|pip|holehe|holehe|holehe email@exemplo.com|
+osint-exiftool|ExifTool|OSINT|apt|libimage-exiftool-perl|exiftool|exiftool arquivo.jpg|
+redteam-nmap|Nmap|Red Team|apt|nmap|nmap|nmap -sV exemplo.com|Sem root, o Nmap faz connect scan (-sT) em vez de SYN scan: funciona, só é mais lento.
+redteam-hydra|Hydra|Red Team|apt|hydra|hydra|hydra -l usuario -P wordlist.txt ssh://alvo|Use apenas em sistemas seus ou com autorização por escrito.
+redteam-sqlmap|SQLMap|Red Team|apt|sqlmap|sqlmap|sqlmap -u "http://alvo/pagina?id=1"|Use apenas em sistemas seus ou com autorização por escrito.
+redteam-nikto|Nikto|Red Team|apt|nikto|nikto|nikto -h http://alvo|Use apenas em sistemas seus ou com autorização por escrito.
+blueteam-clamav|ClamAV|Blue Team|apt|clamav|clamscan|clamscan -r pasta/|Antes do 1º uso, atualize as assinaturas como root: no Termux "proot-distro login debian -- freshclam", na ISO "sudo freshclam".
+blueteam-yara|YARA|Blue Team|apt|yara|yara|yara regra.yar arquivo_ou_pasta|
+blueteam-lynis|Lynis|Blue Team|apt|lynis|lynis|lynis audit system|Sem root, roda com menos verificações; para o relatório completo use sudo (ISO) ou root (Termux).
+blueteam-chkrootkit|chkrootkit|Blue Team|apt|chkrootkit|chkrootkit|chkrootkit|Sem root, roda com menos verificações; para o relatório completo use sudo (ISO) ou root (Termux).
+purpleteam-sigma|Sigma CLI|Purple Team|pip|sigma-cli|sigma|sigma plugin install splunk && sigma convert -t splunk regra.yml|Converte uma técnica (regra Sigma) em consulta para SIEMs (Splunk, Elastic...): a ponte entre o que o Red Team simula e o que o Blue Team detecta. 1º uso: instale um backend com "sigma plugin install <nome>".
+purpleteam-dumpsterfire|DumpsterFire|Purple Team|git|https://github.com/TryCatchHCF/DumpsterFire|dumpsterfire|python3 dumpsterFireFactory.py|Gera eventos de "ataque" inofensivos (arquivos, processos, tráfego) para testar se o Blue Team detecta. Menu interativo.
+purpleteam-atomics|Atomic Red Team (biblioteca)|Purple Team|lib|https://github.com/redcanaryco/atomic-red-team|atomics|(abre a pasta com as técnicas MITRE ATT&CK em arquivos .yaml, para consulta e exercícios manuais)|Só a biblioteca de testes (leitura); o executor oficial é em PowerShell e não roda aqui.
+'
+
+sec_field() { # id campo(2=título,3=categoria,4=tipo,5=pacote,6=bin,7=dica,8=nota)
+  printf '%s\n' "$SEC_TOOLS_SPEC" | awk -F'|' -v id="$1" -v n="$2" '$1==id{print $n; found=1} END{exit !found}'
+}
+
+sec_tool_exists() { printf '%s\n' "$SEC_TOOLS_SPEC" | awk -F'|' -v id="$1" '$1==id{f=1} END{exit !f}'; }
+
+sec_categories() { printf '%s\n' "$SEC_TOOLS_SPEC" | awk -F'|' 'NF{print $3}' | awk '!seen[$0]++'; }
+
+sec_ids_in_category() { printf '%s\n' "$SEC_TOOLS_SPEC" | awk -F'|' -v c="$1" 'NF && $3==c{print $1}'; }
+
+category_id_of() { # "OSINT"->osint, "Red Team"->redteam ...
+  case "$1" in
+    OSINT) echo osint ;; "Red Team") echo redteam ;; "Blue Team") echo blueteam ;; "Purple Team") echo purpleteam ;;
+  esac
+}
+category_label_of() { case "$1" in osint) echo OSINT ;; redteam) echo "Red Team" ;; blueteam) echo "Blue Team" ;; purpleteam) echo "Purple Team" ;; esac; }
+is_category() { case "$1" in osint|redteam|blueteam|purpleteam) return 0 ;; *) return 1 ;; esac; }
+
+sec_repo_dirname() { printf '%s\n' "$SEC_TOOLS_SPEC" | awk -F'|' -v id="$1" '$1==id{n=split($5,a,"/");print a[n]}'; }
+
+sec_is_installed() { # id
+  local type bin; type=$(sec_field "$1" 4); bin=$(sec_field "$1" 6)
+  case "$type" in
+    apt|pip) command -v "$bin" >/dev/null 2>&1 ;;
+    git|lib) [ -d "$TOOLS_DIR/$(sec_repo_dirname "$1")" ] ;;
+    *) return 1 ;;
+  esac
+}
+
+sec_install() { # id
+  local type pkg note
+  type=$(sec_field "$1" 4); pkg=$(sec_field "$1" 5); note=$(sec_field "$1" 8)
+  case "$type" in
+    apt) root_apt "$pkg" || return 1 ;;
+    pip) pip_user "$pkg" || return 1 ;;
+    git|lib) git_tool "$pkg" "$(sec_repo_dirname "$1")" || return 1 ;;
+    *) err "tipo de instalação desconhecido: $type"; return 1 ;;
+  esac
+  hash -r
+  sec_is_installed "$1" || { err "Instalado, mas não encontrei o comando esperado."; return 1; }
+  ok "$(sec_field "$1" 2) instalado(a)."
+  [ -n "$note" ] && warn "$note"
+  return 0
+}
+
+sec_run() { # id
+  local title bin hint type dir
+  title=$(sec_field "$1" 2); bin=$(sec_field "$1" 6); hint=$(sec_field "$1" 7); type=$(sec_field "$1" 4)
+  mkdir -p "$PROJECTS"; cd "$PROJECTS" || cd "$HOME"
+  if [ "$type" = lib ]; then
+    dir="$TOOLS_DIR/$(sec_repo_dirname "$1")"
+    echo "${B}$title${Z} - biblioteca de testes em: $dir"
+    command -v xdg-open >/dev/null 2>&1 && xdg-open "$dir" >/dev/null 2>&1 &
+    if command -v mousepad >/dev/null 2>&1 && [ -f "$dir/README.md" ]; then mousepad "$dir/README.md" & fi
+    echo "Veja as técnicas por tática em: $dir/atomics/"
+    return 0
+  fi
+  echo "${B}$title${Z}"
+  echo "${D}Dica de uso:${Z} $hint"
+  echo
+  if [ "$type" = git ]; then
+    dir="$TOOLS_DIR/$(sec_repo_dirname "$1")"
+    cd "$dir" 2>/dev/null || true
+  fi
+  exec bash -i
+}
+
+security_menu() { # categoria (osint|redteam|blueteam|purpleteam)
+  local label ids id title items sel choice n
+  label=$(category_label_of "$1")
+  ids=$(sec_ids_in_category "$label")
+  items=""
+  while IFS= read -r id; do
+    [ -z "$id" ] && continue
+    title=$(sec_field "$id" 2)
+    if sec_is_installed "$id"; then items="$items$title\n"; else items="$items$title (instalar)\n"; fi
+  done <<< "$ids"
+  items=$(printf '%b' "$items" | sed '/^$/d')
+  if [ -n "${DISPLAY:-}" ] && command -v rofi >/dev/null 2>&1; then
+    pkill -u "$(id -u)" -x rofi 2>/dev/null
+    choice=$(printf '%s\n' "$items" | rofi -dmenu -i -no-custom -p "$label" -theme-str 'window{width:560px;}')
+  else
+    printf '%s\n' "$items" | nl -w2 -s') '
+    read -r -p "Escolha o número: " n
+    choice=$(printf '%s\n' "$items" | sed -n "${n}p")
+  fi
+  [ -z "$choice" ] && return 0
+  choice="${choice% (instalar)}"
+  sel=""
+  while IFS= read -r id; do
+    [ -z "$id" ] && continue
+    [ "$(sec_field "$id" 2)" = "$choice" ] && sel="$id"
+  done <<< "$ids"
+  [ -n "$sel" ] || return 0
+  if sec_is_installed "$sel"; then
+    spawn_term "$(sec_field "$sel" 2)" "$SELF" --inner run "$sel"
+  else
+    spawn_term "Instalar $(sec_field "$sel" 2)" "$SELF" --inner install "$sel"
+  fi
+}
+
+# pacotes do sistema (apt). Como usuário comum, pede ao Termux (vigia de pedidos); como root, roda direto.
+root_apt() { # pacotes...
+  if [ "$(id -u)" = 0 ]; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update && apt-get install -y --no-install-recommends "$@"
+    return $?
+  fi
+  # ISO Infynit AI (PC): há sudo de verdade (sem senha no modo live; no sistema instalado pede a senha no terminal)
+  if [ -f /etc/infynit-ai-iso ] && command -v sudo >/dev/null 2>&1; then
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get update && \
+      sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@"
+    return $?
+  fi
+  local dir="$HOME/.cache/ambxst/rootjobs" id waited=0 rc tp
+  id="job-$$-$(date +%s)"
+  mkdir -p "$dir"
+  printf '%s\n' "$*" > "$dir/$id.tmp" && mv -f "$dir/$id.tmp" "$dir/$id.job"
+  info "Pedindo ao Termux para instalar: $*"
+  while [ ! -e "$dir/$id.log" ] && [ ! -e "$dir/$id.rc" ]; do
+    sleep 1; waited=$((waited + 1))
+    if [ "$waited" -ge 20 ]; then
+      rm -f "$dir/$id.job"
+      err "O Termux não respondeu ao pedido de instalação."
+      err "Reinicie o desktop (no Termux: ambxst-restart) para ativar o vigia de pacotes e tente de novo."
+      err "Ou instale manualmente no Termux: proot-distro login debian -- apt-get install -y $*"
+      return 2
+    fi
+  done
+  tail -n +1 -f "$dir/$id.log" 2>/dev/null & tp=$!
+  while [ ! -e "$dir/$id.rc" ]; do sleep 1; done
+  sleep 1; kill "$tp" 2>/dev/null; wait "$tp" 2>/dev/null
+  rc=$(cat "$dir/$id.rc" 2>/dev/null); rc="${rc:-1}"
+  rm -f "$dir/$id".*
+  return "$rc"
+}
+
+# baixa um script e confere se parece mesmo um script (não uma página de erro HTML)
+fetch_script() { # nome url
+  mktmp
+  local out="$TMPD/$1.dl"
+  curl -fsSL --max-time 60 "$2" -o "$out" || { err "Falha ao baixar $1 de $2"; return 1; }
+  if [ "$(head -c 2 "$out")" != '#!' ] || [ "$(stat -c %s "$out" 2>/dev/null || echo 0)" -lt 2000 ]; then
+    err "O arquivo baixado de $2 não parece um script válido; não instalei $1."
+    return 1
+  fi
+  mkdir -p "$HOME/.local/bin"
+  install -m 755 "$out" "$HOME/.local/bin/$1"
+}
+
+# ------------------------------------------------------------------ terminal
+spawn_term() { # título comando...
+  local title="$1"; shift
+  if [ -t 1 ] && [ -z "${AMBXST_NEW_TERM:-}" ]; then "$@"; return $?; fi
+  if command -v xfce4-terminal >/dev/null 2>&1; then
+    setsid xfce4-terminal --title="$title" -x env "PATH=$PATH" "$@" >/dev/null 2>&1 &
+  else
+    notify "$title" "xfce4-terminal não encontrado." dialog-error
+    return 1
+  fi
+}
+
+# ------------------------------------------------------------------ instalações
+install_claude_code() {
+  need_net || return 1
+  check_space 500
+  mktmp
+  info "Instalando o Claude Code (instalador oficial)..."
+  if curl -fsSL https://claude.ai/install.sh -o "$TMPD/claude-install.sh" && bash "$TMPD/claude-install.sh" \
+     && hash -r && claude --version >/dev/null 2>&1; then
+    ok "Claude Code instalado: $(claude --version 2>/dev/null | head -n1)"
+    return 0
+  fi
+  warn "O instalador nativo não funcionou aqui; tentando pelo npm (@anthropic-ai/claude-code)..."
+  rm -f "$HOME/.local/bin/claude"
+  if npm_g "@anthropic-ai/claude-code" && hash -r && claude --version >/dev/null 2>&1; then
+    ok "Claude Code instalado via npm: $(claude --version 2>/dev/null | head -n1)"
+    return 0
+  fi
+  err "Não consegui instalar o Claude Code. Veja a mensagem acima ou https://code.claude.com/docs/en/troubleshoot-install"
+  return 1
+}
+
+install_opencode() {
+  need_net || return 1
+  check_space 500
+  mktmp
+  info "Instalando o OpenCode (instalador oficial)..."
+  if curl -fsSL https://opencode.ai/install -o "$TMPD/opencode-install.sh" && bash "$TMPD/opencode-install.sh"; then
+    if [ -x "$HOME/.opencode/bin/opencode" ]; then mkdir -p "$HOME/.local/bin"; ln -sf "$HOME/.opencode/bin/opencode" "$HOME/.local/bin/opencode"; fi
+    hash -r
+    if opencode --version >/dev/null 2>&1; then ok "OpenCode instalado: $(opencode --version 2>/dev/null | head -n1)"; return 0; fi
+  fi
+  warn "O instalador oficial não funcionou aqui; tentando pelo npm (opencode-ai)..."
+  rm -f "$HOME/.local/bin/opencode"
+  if npm_g "opencode-ai" && hash -r && opencode --version >/dev/null 2>&1; then
+    ok "OpenCode instalado via npm: $(opencode --version 2>/dev/null | head -n1)"
+    return 0
+  fi
+  err "Não consegui instalar o OpenCode. Veja a mensagem acima ou https://opencode.ai/docs"
+  return 1
+}
+
+install_shannon() {
+  need_net || return 1
+  check_space 800
+  info "Instalando o Shannon (@keygraph/shannon) via npm..."
+  npm_g "@keygraph/shannon@latest" || { err "Falha ao instalar o Shannon."; return 1; }
+  hash -r
+  ok "Shannon instalado. Comando: $(npm_bin_name @keygraph/shannon shannon)"
+  if ! docker_ok; then
+    warn "Atenção: o Shannon roda os testes dentro de um contêiner Docker, e o Docker NÃO funciona dentro deste Debian (proot, sem root)."
+    warn "O comando fica instalado, mas para rodar um pentest de verdade use um PC/servidor com Docker (ou um celular com root)."
+  fi
+}
+
+gitbot_gate() {
+  have_agent && return 0
+  echo
+  warn "O GitBot só é instalado depois que o Claude Code ou o OpenCode estiver instalado."
+  echo "   1) Instalar o Claude Code agora"
+  echo "   2) Instalar o OpenCode agora"
+  echo "   Enter) Cancelar"
+  local c; read -r -p "Escolha: " c || return 1
+  case "$c" in
+    1) install_claude_code || return 1 ;;
+    2) install_opencode || return 1 ;;
+    *) info "Cancelado. Instale o Claude Code ou o OpenCode e toque em GitBot de novo."; return 1 ;;
+  esac
+  have_agent
+}
+
+install_gitbot() {
+  gitbot_gate || return 1
+  need_net || return 1
+  check_space 500
+  info "Instalando o GitBot (@gitbot-hq/gitbot) via npm..."
+  npm_g "@gitbot-hq/gitbot" || { err "Falha ao instalar o GitBot."; return 1; }
+  hash -r
+  command -v gitbot >/dev/null 2>&1 || { err "GitBot instalado, mas o comando 'gitbot' não apareceu no PATH."; return 1; }
+  ok "GitBot instalado."
+}
+
+install_media() {
+  need_net || return 1
+  check_space 700
+  local need="" p
+  for p in mpv fzf openssl patch jq; do command -v "$p" >/dev/null 2>&1 || need="$need $p"; done
+  command -v hxselect >/dev/null 2>&1 || need="$need html-xml-utils"
+  if [ -n "$need" ]; then
+    info "Instalando pacotes do sistema:$need (pode demorar; o mpv puxa várias bibliotecas)"
+    # shellcheck disable=SC2086
+    root_apt $need || { err "Não consegui instalar os pacotes do sistema ($need)."; return 1; }
+  fi
+  if ! command -v yt-dlp >/dev/null 2>&1; then
+    root_apt yt-dlp >/dev/null 2>&1 || warn "yt-dlp não instalou (opcional; alguns vídeos podem não abrir)."
+  fi
+  info "Baixando ani-cli (animes) e lobster (filmes e séries)..."
+  fetch_script ani-cli "https://raw.githubusercontent.com/pystardust/ani-cli/master/ani-cli" || return 1
+  fetch_script lobster "https://raw.githubusercontent.com/justchokingaround/lobster/main/lobster.sh" || return 1
+  # mpv sem GPU dentro do proot: saída de vídeo por software e áudio pelo PulseAudio do Termux
+  # (na ISO para PC há GPU de verdade: usa os padrões do mpv)
+  if [ ! -f /etc/infynit-ai-iso ] && [ ! -e "$HOME/.config/mpv/mpv.conf" ]; then
+    mkdir -p "$HOME/.config/mpv"
+    printf '%s\n' "# Infynit AI: ajustes para rodar no proot (sem GPU)" "vo=x11" "hwdec=no" "ao=pulse" "cache=yes" "demuxer-max-bytes=64MiB" \
+      > "$HOME/.config/mpv/mpv.conf"
+  fi
+  hash -r
+  is_installed media || { err "Algo ficou faltando (mpv/fzf/ani-cli/lobster)."; return 1; }
+  ok "Pronto: animes com ani-cli, filmes e séries com lobster."
+  warn "Esses dois programas buscam vídeos em sites de terceiros; a disponibilidade e a legalidade do conteúdo dependem da fonte e do seu país."
+}
+
+do_install() {
+  if sec_tool_exists "$1"; then sec_install "$1"; return; fi
+  case "$1" in
+    claude-code) install_claude_code ;;
+    opencode) install_opencode ;;
+    shannon) install_shannon ;;
+    gitbot) install_gitbot ;;
+    media) install_media ;;
+  esac
+}
+
+# ------------------------------------------------------------------ execução
+docker_ok() { command -v docker >/dev/null 2>&1 && timeout 8 docker info >/dev/null 2>&1; }
+
+run_cli_in_projects() { # comando
+  mkdir -p "$PROJECTS"
+  cd "$PROJECTS" || cd "$HOME" || true
+  "$@"
+}
+
+run_shannon() {
+  local bin; bin=$(npm_bin_name @keygraph/shannon shannon)
+  echo "${B}Shannon${Z} — pentester de IA (Keygraph)"
+  echo "${Y}Use SOMENTE em aplicações que você é dono ou tem autorização escrita para testar, e nunca em produção.${Z}"
+  echo "O Shannon executa exploits de verdade (cria usuários, envia formulários, altera estado)."
+  echo
+  if ! docker_ok; then
+    warn "Docker não está disponível neste Debian (proot). O Shannon precisa do Docker para o contêiner de trabalho."
+    warn "O comando '$bin' vai abrir, mas o pentest só roda em outra máquina com Docker."
+    ask_yes "Abrir o Shannon mesmo assim?" n || return 0
+  fi
+  command -v "$bin" >/dev/null 2>&1 || { err "Comando '$bin' não encontrado; reinstale pelo botão Shannon."; return 1; }
+  run_cli_in_projects "$bin"
+}
+
+run_gitbot() {
+  have_agent || warn "Nem Claude Code nem OpenCode foram encontrados; o GitBot só oferece os agentes que existirem."
+  local ws="${GITBOT_WORKSPACE:-$PROJECTS}" url="http://localhost:$GITBOT_PORT" gp i
+  mkdir -p "$ws"
+  if curl -fs -o /dev/null --max-time 2 "http://127.0.0.1:$GITBOT_PORT/" 2>/dev/null; then
+    info "O GitBot já está rodando em $url; abrindo o navegador."
+    ( setsid ambxst-browser "$url" >/dev/null 2>&1 & )
+    return 0
+  fi
+  echo "${B}GitBot${Z} — workspace: $ws   porta: $GITBOT_PORT"
+  echo "${Y}O GitBot não tem autenticação e escuta em todas as interfaces: use só em Wi-Fi confiável e feche (Ctrl+C) quando terminar.${Z}"
+  echo
+  cd "$ws" || return 1
+  gitbot start -p "$GITBOT_PORT" &
+  gp=$!
+  trap 'kill "$gp" 2>/dev/null' INT TERM
+  for i in $(seq 1 45); do
+    curl -fs -o /dev/null --max-time 2 "http://127.0.0.1:$GITBOT_PORT/" 2>/dev/null && break
+    kill -0 "$gp" 2>/dev/null || break
+    sleep 1
+  done
+  if kill -0 "$gp" 2>/dev/null; then
+    info "Abrindo $url no navegador (se não abrir, abra você mesmo)."
+    ( setsid ambxst-browser "$url" >/dev/null 2>&1 & )
+  fi
+  wait "$gp"
+  trap - INT TERM
+}
+
+media_menu() {
+  local choice=""
+  if [ -n "${DISPLAY:-}" ] && command -v rofi >/dev/null 2>&1; then
+    pkill -u "$(id -u)" -x rofi 2>/dev/null
+    choice=$(printf '%s\n' "Animes (ani-cli)" "Filmes e Séries (lobster)" "Atualizar ani-cli e lobster" \
+      | rofi -dmenu -i -no-custom -p "Assistir" -theme-str 'window{width:520px;} listview{lines:3;}')
+  else
+    echo "1) Animes (ani-cli)   2) Filmes e Séries (lobster)   3) Atualizar"
+    local n; read -r -p "Escolha: " n
+    case "$n" in 1) choice="Animes" ;; 2) choice="Filmes" ;; 3) choice="Atualizar" ;; esac
+  fi
+  case "$choice" in
+    Animes*) spawn_term "Animes - ani-cli" ani-cli ;;
+    Filmes*) spawn_term "Filmes e Séries - lobster" lobster ;;
+    Atualizar*) AMBXST_NEW_TERM=1 spawn_term "Atualizar ani-cli e lobster" "$SELF" --inner update-media ;;
+  esac
+}
+
+do_run() {
+  if is_category "$1"; then security_menu "$1"; return; fi
+  if sec_tool_exists "$1"; then sec_run "$1"; return; fi
+  case "$1" in
+    claude-code)
+      echo "${D}Primeiro uso: faça login quando o Claude Code pedir (se o navegador não abrir, copie o link).${Z}"
+      run_cli_in_projects claude ;;
+    opencode)
+      echo "${D}Primeiro uso: digite /connect para configurar um provedor de modelos.${Z}"
+      run_cli_in_projects opencode ;;
+    shannon) run_shannon ;;
+    gitbot) run_gitbot ;;
+    media) media_menu ;;
+  esac
+}
+
+update_media() {
+  need_net || return 1
+  fetch_script ani-cli "https://raw.githubusercontent.com/pystardust/ani-cli/master/ani-cli" \
+    && fetch_script lobster "https://raw.githubusercontent.com/justchokingaround/lobster/main/lobster.sh" \
+    && ok "ani-cli e lobster atualizados."
+}
+
+# ------------------------------------------------------------------ fluxo dentro do terminal
+inner() { # install|run|update-media  [id]
+  local act="$1" id="${2:-}" rc=0
+  if [ "$act" = update-media ]; then
+    update_media; rc=$?
+    read -r -p "Pressione Enter para fechar..." _ || true
+    return "$rc"
+  fi
+  echo "${B}== $(title_of "$id") ==${Z}"
+  case "$act" in
+    install)
+      do_install "$id"; rc=$?
+      if [ "$rc" = 0 ]; then
+        echo
+        if ask_yes "Abrir o $(title_of "$id") agora?"; then do_run "$id"; rc=$?; fi
+      fi
+      ;;
+    run) do_run "$id"; rc=$? ;;
+  esac
+  if [ "$rc" != 0 ]; then
+    echo; err "Terminou com erro (código $rc)."
+    read -r -p "Pressione Enter para fechar..." _ || true
+  elif [ "$act" = install ]; then
+    read -r -p "Pressione Enter para fechar..." _ || true
+  fi
+  return "$rc"
+}
+
+usage() {
+  cat <<U
+Uso: ambxst-apps <ferramenta> [--install|--run|--status]
+  claude-code   Claude Code (CLI da Anthropic)
+  opencode      OpenCode (agente de código open source)
+  shannon       Shannon (pentester de IA; precisa de Docker para rodar testes)
+  gitbot        GitBot (só instala com Claude Code ou OpenCode já instalado)
+  media         Filmes, séries e animes (mpv + ani-cli + lobster)
+  osint         OSINT: theHarvester, Sherlock, Holehe, ExifTool
+  redteam       Red Team: Nmap, Hydra, SQLMap, Nikto
+  blueteam      Blue Team: ClamAV, YARA, Lynis, chkrootkit
+  purpleteam    Purple Team: Sigma CLI, DumpsterFire, biblioteca Atomic Red Team
+  status        mostra o que está instalado
+Sem opção: abre se estiver instalado, senão instala. osint/redteam/blueteam/purpleteam
+sempre abrem uma lista para escolher a ferramenta (cada uma instala e abre por si).
+U
+}
+
+main() {
+  local first="${1:-}" id act
+  case "$first" in
+    ""|-h|--help|help) usage; return 0 ;;
+    status|list|--status) show_status; return 0 ;;
+    --inner) shift; inner "$@"; return $? ;;
+  esac
+  id=$(canon "$first")
+  if [ -z "$id" ]; then err "Ferramenta desconhecida: $first"; usage; return 2; fi
+  if is_category "$id"; then
+    if [ "${2:-}" = --status ]; then
+      local tid
+      while IFS= read -r tid; do
+        [ -z "$tid" ] && continue
+        if sec_is_installed "$tid"; then echo "$(sec_field "$tid" 2): instalado"; else echo "$(sec_field "$tid" 2): não instalado"; fi
+      done <<< "$(sec_ids_in_category "$(category_label_of "$id")")"
+      return 0
+    fi
+    security_menu "$id"; return 0
+  fi
+  act="${2:---auto}"
+  case "$act" in
+    --status) if is_installed "$id"; then echo "$(title_of "$id"): instalado"; return 0; else echo "$(title_of "$id"): não instalado"; return 1; fi ;;
+    --install) spawn_term "Instalar $(title_of "$id")" "$SELF" --inner install "$id"; return $? ;;
+    --run) act=run ;;
+    --auto) if is_installed "$id"; then act=run; else act=install; fi ;;
+    *) err "Opção desconhecida: $act"; usage; return 2 ;;
+  esac
+  if [ "$act" = install ]; then
+    spawn_term "Instalar $(title_of "$id")" "$SELF" --inner install "$id"
+  elif [ "$id" = media ]; then
+    media_menu
+  else
+    spawn_term "$(title_of "$id")" "$SELF" --inner run "$id"
+  fi
+}
+
+main "$@"

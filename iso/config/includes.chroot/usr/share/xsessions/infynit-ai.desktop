@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Infynit AI
+Comment=Desktop Infynit AI (Openbox + tint2 + rofi)
+Exec=/usr/local/bin/infynit-session
+TryExec=/usr/local/bin/infynit-session
+Type=Application
+DesktopNames=Openbox

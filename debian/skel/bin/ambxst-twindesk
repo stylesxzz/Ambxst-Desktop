@@ -1,0 +1,10 @@
+#!/bin/bash
+# ambxst-twindesk - abre o guia de integração com o TwinDesk.
+# O .deb fornecido é amd64 e não pode ser instalado no Debian ARM64 do Android.
+MSG="TwinDesk no Infynit AI\n\nPara compartilhar a tela do Android, apps e arquivos com o PC:\n\n1. Instale o app TwinDesk no Android.\n2. Instale o TwinDesk para Linux/Windows/macOS no PC.\n3. Abra os dois na mesma rede Wi-Fi.\n4. Faça o pareamento comparando o código.\n5. No PC, abra Phone/Screen/Files para compartilhar.\n\nO pacote TwinDesk-2.0.1-amd64.deb é para PCs x86_64; não instale dentro deste Debian ARM64."
+if command -v zenity >/dev/null 2>&1; then
+  zenity --info --title="Infynit AI + TwinDesk" --width=620 --text="$MSG" 2>/dev/null || true
+else
+  notify-send "Infynit AI + TwinDesk" "Instale o TwinDesk no Android e no PC; o .deb amd64 não roda neste Debian ARM64." 2>/dev/null || true
+fi
+exit 0

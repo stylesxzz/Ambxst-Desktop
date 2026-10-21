@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Claude Code
+Comment=Instala (1º toque) e abre o Claude Code, o agente de código da Anthropic
+Exec=/home/ambxst/.local/bin/ambxst-apps claude-code
+Icon=/home/ambxst/.local/share/ambxst/icons/ambxst-claude-code.svg
+Terminal=false
+Categories=Development;ConsoleOnly;
+Keywords=claude;anthropic;ia;ai;codigo;code;agente;

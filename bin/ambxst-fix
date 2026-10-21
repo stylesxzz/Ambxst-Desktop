@@ -1,0 +1,146 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# ambxst-fix - diagnóstico de tela preta/erros e correções SEGURAS. (roda no TERMUX)
+# Não mata processos indiscriminadamente e não apaga configurações do usuário.
+set -u
+LIB="${AMBXST_HOME:-$HOME/.ambxst}/lib/common.sh"
+[ -f "$LIB" ] || { echo "Infynit AI não instalado (falta $LIB). Rode install-ambxst.sh." >&2; exit 1; }
+# shellcheck source=/dev/null
+. "$LIB"
+
+RESTORE=0; KILL_STALE=0
+for a in "$@"; do
+  case "$a" in
+    --restore-config) RESTORE=1 ;;
+    --kill-stale) KILL_STALE=1 ;;
+    -h|--help)
+      cat <<U
+Uso: ambxst-fix [--restore-config] [--kill-stale]
+  (sem opções)       só diagnostica e corrige o que é seguro (arquivos de lock/pid velhos, arquivos faltando)
+  --restore-config   recoloca as configurações padrão do Infynit AI (faz backup .bak-DATA do que existir)
+  --kill-stale       encerra servidores Termux:X11 duplicados (mantém o mais novo)
+U
+      exit 0 ;;
+    *) err "Opção desconhecida: $a"; exit 2 ;;
+  esac
+done
+
+PROBLEMS=0; FIXED=0
+good()  { printf '  %s✔%s %s\n' "$C_G" "$C_0" "$*"; }
+bad()   { printf '  %s✘%s %s\n' "$C_R" "$C_0" "$1"; shift; [ $# -gt 0 ] && printf '      %s→ %s%s\n' "$C_D" "$*" "$C_0"; PROBLEMS=$((PROBLEMS+1)); }
+fixed() { printf '  %s⚙%s corrigido: %s\n' "$C_Y" "$C_0" "$*"; FIXED=$((FIXED+1)); }
+
+echo "== 1. Dependências no Termux =="
+for c in proot-distro termux-x11 pulseaudio pgrep am curl; do
+  if command -v "$c" >/dev/null 2>&1; then good "$c"; else
+    case "$c" in
+      termux-x11) bad "$c ausente" "pkg install x11-repo && pkg install termux-x11-nightly" ;;
+      pgrep) bad "$c ausente" "pkg install procps" ;;
+      *) bad "$c ausente" "pkg install $c" ;;
+    esac
+  fi
+done
+x11_app_installed; case $? in
+  0) good "App Termux:X11 instalado" ;;
+  1) bad "App Termux:X11 NÃO instalado (tela preta garantida)" "instale o APK nightly do Termux:X11 (GitHub termux/termux-x11, release nightly)" ;;
+  *) warn "Não foi possível verificar se o app Termux:X11 está instalado." ;;
+esac
+
+echo "== 2. Debian e arquivos do desktop =="
+if [ ! -d "$AMBXST_ROOTFS" ]; then
+  bad "Debian não instalado" "bash install-ambxst.sh"
+else
+  good "Debian presente: $AMBXST_ROOTFS"
+  H="$AMBXST_ROOTFS/home/$AMBXST_USER"
+  MISSING=0
+  for f in .local/bin/ambxst-session .local/bin/ambxst-autostart .local/bin/ambxst-menu .local/bin/ambxst-panel .local/bin/ambxst-twindesk .local/bin/ambxst-apps .local/bin/ambxst-login \
+           .config/ambxst/ambxst.conf .config/openbox/rc.xml .config/tint2/top.tint2rc .config/tint2/dock.tint2rc \
+           .config/rofi/config.rasi .config/dunst/dunstrc Pictures/Wallpapers/infynit.jpg Pictures/Wallpapers/skull.jpg; do
+    if [ ! -e "$H/$f" ]; then bad "faltando: ~/$f"; MISSING=1; fi
+  done
+  for b in openbox tint2 rofi dunst pcmanfm xfce4-terminal; do
+    if ! ls "$AMBXST_ROOTFS"/usr/bin/"$b" >/dev/null 2>&1; then bad "pacote do Debian ausente: $b" "rode: bash install-ambxst.sh (reinstala o que falta)"; fi
+  done
+  if [ "$MISSING" = 1 ] || [ "$RESTORE" = 1 ]; then
+    if [ -f "$AMBXST_ROOTFS/opt/ambxst/setup-debian.sh" ]; then
+      info "Restaurando arquivos do desktop dentro do Debian..."
+      FLAG="--config-only"; [ "$RESTORE" = 1 ] && FLAG="--config-only --force"
+      # shellcheck disable=SC2086
+      if proot-distro login "$AMBXST_DISTRO" -- bash /opt/ambxst/setup-debian.sh $FLAG >> "$AMBXST_LOGS/fix.log" 2>&1; then
+        fixed "arquivos de configuração (log: $AMBXST_LOGS/fix.log)"
+      else
+        bad "falha ao restaurar configurações" "veja: ambxst-logs install  /  $AMBXST_LOGS/fix.log"
+      fi
+    else
+      bad "payload ausente em /opt/ambxst" "rode novamente: bash install-ambxst.sh"
+    fi
+  fi
+  mkdir -p "$H/.cache/ambxst" "$H/Android" "$H/Termux" 2>/dev/null && good "diretórios de runtime/montagem existem"
+  if [ -f "$CONF_FILE" ]; then
+    FREE=$(awk '/MemAvailable/{printf "%d",$2/1024}' /proc/meminfo 2>/dev/null)
+    if [ -n "$FREE" ] && [ "$FREE" -lt 600 ]; then
+      bad "pouca RAM livre (${FREE} MB)" "ambxst-eco on && ambxst-restart; feche apps do Android em segundo plano"
+    else good "RAM livre: ${FREE:-?} MB"; fi
+  fi
+fi
+
+echo "== 3. Servidor Termux:X11 / socket / processos antigos =="
+XP=$(x11_pids | tr '\n' ' ')
+NX=$(x11_pids | wc -l | tr -d ' ')
+if [ -z "$XP" ]; then
+  if [ -e "$X11_SOCKET" ]; then
+    rm -f "$X11_SOCKET" "$AMBXST_TMP/.X0-lock"; fixed "socket X órfão removido ($X11_SOCKET)"
+  fi
+  rm -f "$AMBXST_RUN/x11.pid"
+  bad "servidor Termux:X11 não está rodando" "ambxst-start"
+else
+  good "servidor Termux:X11 rodando (PID $XP)"
+  [ -S "$X11_SOCKET" ] && good "socket do display :0 existe" || bad "servidor ativo, mas sem socket $X11_SOCKET" "ambxst-restart"
+  if [ "$NX" -gt 1 ]; then
+    if [ "$KILL_STALE" = 1 ]; then
+      OLD=$(x11_pids | sort -n | head -n $((NX-1)))
+      for p in $OLD; do kill "$p" 2>/dev/null; done
+      fixed "servidores X duplicados encerrados (mantido o mais novo)"
+    else
+      bad "$NX servidores Termux:X11 duplicados" "ambxst-fix --kill-stale"
+    fi
+  fi
+fi
+
+SP=$(session_pid || true)
+if [ -z "$SP" ]; then
+  [ -f "$AMBXST_RUN/supervisor.pid" ] && { rm -f "$AMBXST_RUN/supervisor.pid"; fixed "pid de supervisor velho removido"; }
+  if pgrep -x openbox >/dev/null 2>&1; then
+    bad "Openbox rodando sem supervisor (sessão órfã)" "ambxst-stop && ambxst-start"
+  else
+    bad "sessão Debian não está rodando" "ambxst-start"
+  fi
+else
+  good "supervisor da sessão vivo (PID $SP)"
+  if [ -n "$XP" ] && ! pgrep -x openbox >/dev/null 2>&1; then
+    bad "servidor X ok, mas o gerenciador de janelas (Openbox) não está rodando -> TELA PRETA" "ambxst-logs session ; depois ambxst-restart"
+  fi
+  [ -n "$XP" ] && ! pgrep -x tint2 >/dev/null 2>&1 && pgrep -x openbox >/dev/null 2>&1 && \
+    bad "Openbox ok, mas as barras (tint2) não subiram" "ambxst-logs session  (procure erros do autostart)"
+fi
+
+echo "== 4. Erros conhecidos nos logs =="
+check_log() { # arquivo
+  [ -f "$1" ] || return 0
+  local t; t=$(tail -n 80 "$1" 2>/dev/null)
+  printf '%s' "$t" | grep -qi "cannot open display\|Can't open display" && bad "log $(basename "$1"): 'cannot open display'" "o display :0 não estava ativo; ambxst-restart"
+  printf '%s' "$t" | grep -qi "Authorization required\|No protocol specified" && bad "log $(basename "$1"): erro de autorização do X" "confirme AMBXST_X11_ARGS=-ac em ambxst.conf"
+  printf '%s' "$t" | grep -qi "Permission denied" && bad "log $(basename "$1"): 'Permission denied'" "ambxst-fix --restore-config"
+  printf '%s' "$t" | grep -qi "not found" && bad "log $(basename "$1"): comando 'not found'" "dependência ausente dentro do Debian: bash install-ambxst.sh"
+  return 0
+}
+check_log "$AMBXST_LOGS/x11.log"; check_log "$AMBXST_LOGS/proot.log"; check_log "$SESSION_LOG"
+[ "$PROBLEMS" -eq 0 ] && good "nenhum erro conhecido nos logs"
+
+echo
+if [ "$PROBLEMS" -eq 0 ]; then
+  ok "Nenhum problema encontrado ($FIXED correção(ões) aplicada(s))."
+  info "Se ainda vir tela preta: abra o app Termux:X11, toque em 'Preferences' e veja a resolução; depois ambxst-restart."
+else
+  warn "$PROBLEMS problema(s) restante(s), $FIXED corrigido(s). Siga as setas (→) acima."
+  exit 1
+fi

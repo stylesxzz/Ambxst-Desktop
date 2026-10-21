@@ -1,0 +1,31 @@
+#!/bin/bash
+# Roda DENTRO do chroot da ISO, depois de instalar os pacotes.
+set -e
+
+# marca que este é o sistema Infynit AI para PC (ambxst-apps usa sudo em vez do vigia do Termux)
+touch /etc/infynit-ai-iso
+
+# gerenciador de login
+echo /usr/sbin/lightdm > /etc/X11/default-display-manager
+
+# login automático só no modo live
+chmod +x /usr/local/lib/infynit-live-autologin /usr/local/bin/infynit-session
+mkdir -p /etc/systemd/system/graphical.target.wants
+ln -sf /etc/systemd/system/infynit-live-autologin.service /etc/systemd/system/graphical.target.wants/infynit-live-autologin.service
+
+# navegador e terminal padrão
+update-alternatives --set x-www-browser /usr/bin/firefox-esr 2>/dev/null || true
+update-alternatives --set gnome-www-browser /usr/bin/firefox-esr 2>/dev/null || true
+update-alternatives --set x-terminal-emulator /usr/bin/xfce4-terminal.wrapper 2>/dev/null || true
+
+# grupos do usuário live (só os que existem nesta imagem)
+LIVEGROUPS=""
+for g in audio cdrom dip floppy video plugdev netdev scanner bluetooth fuse sudo lpadmin docker wireshark; do
+  getent group "$g" >/dev/null 2>&1 && LIVEGROUPS="$LIVEGROUPS $g"
+done
+mkdir -p /etc/live/config.conf.d
+printf 'LIVE_USER_DEFAULT_GROUPS="%s"\n' "${LIVEGROUPS# }" > /etc/live/config.conf.d/infynit.conf
+
+fc-cache -f >/dev/null 2>&1 || true
+update-desktop-database >/dev/null 2>&1 || true
+exit 0

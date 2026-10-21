@@ -1,0 +1,40 @@
+#!/bin/bash
+# ambxst-settings (PC) - configurações do sistema (todas as entradas têm ação real).
+CONF="$HOME/.config/ambxst/ambxst.conf"
+eco=$(grep -E '^AMBXST_ECO=' "$CONF" 2>/dev/null | tail -n1 | cut -d= -f2)
+[ "$eco" = 1 ] && ecolabel="Modo econômico: LIGADO (tocar para desligar)" || ecolabel="Modo econômico: desligado (tocar para ligar)"
+pkill -u "$(id -u)" -x rofi 2>/dev/null
+choice=$(printf '%s\n' \
+  "Papel de parede" \
+  "Rede e Wi-Fi" \
+  "Bluetooth" \
+  "Som" \
+  "Telas (resolução e posição)" \
+  "Energia e bateria" \
+  "Impressoras" \
+  "Discos e partições" \
+  "Aparência (tema GTK, ícones, fontes)" \
+  "$ecolabel" \
+  "Editar configuração do Infynit AI" \
+  "Atalhos de teclado (ajuda)" \
+  "Reiniciar interface" \
+  | rofi -dmenu -i -no-custom -p "Configurações" -theme-str 'window{width:560px;} listview{lines:13;}')
+case "$choice" in
+  "Papel de parede") exec ambxst-wallpaper ;;
+  Rede*) exec nm-connection-editor ;;
+  Bluetooth*) exec blueman-manager ;;
+  Som*) exec pavucontrol ;;
+  Telas*) exec arandr ;;
+  Energia*) exec xfce4-power-manager-settings ;;
+  Impressoras*) exec system-config-printer ;;
+  Discos*) exec gnome-disks ;;
+  Aparência*) exec lxappearance ;;
+  Modo*)
+    if [ "$eco" = 1 ]; then new=0; else new=1; fi
+    if grep -q '^AMBXST_ECO=' "$CONF"; then sed -i "s|^AMBXST_ECO=.*|AMBXST_ECO=$new|" "$CONF"; else echo "AMBXST_ECO=$new" >> "$CONF"; fi
+    notify-send "Modo econômico" "Alterado para $new. Use 'Reiniciar interface' para aplicar."
+    ;;
+  Editar*) exec mousepad "$CONF" ;;
+  Atalhos*) exec mousepad "$HOME/.config/ambxst/ATALHOS.txt" ;;
+  Reiniciar*) exec "$HOME/.local/bin/ambxst-restart-ui" ;;
+esac

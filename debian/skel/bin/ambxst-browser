@@ -1,0 +1,9 @@
+#!/bin/bash
+# ambxst-browser - abre o Firefox ESR (ou o Brave, se o Firefox não estiver instalado).
+if command -v firefox-esr >/dev/null 2>&1; then
+  export MOZ_DISABLE_CONTENT_SANDBOX=1 MOZ_DISABLE_GMP_SANDBOX=1 MOZ_DISABLE_RDD_SANDBOX=1 MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1
+  exec firefox-esr "$@"
+fi
+if command -v brave-browser >/dev/null 2>&1; then exec "$HOME/.local/bin/ambxst-brave" "$@"; fi
+notify-send -i web-browser "Navegador não instalado" "No Termux rode: ambxst-browser-install  (ou: ambxst-browser-install brave)" 2>/dev/null
+exit 1

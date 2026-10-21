@@ -1,0 +1,13 @@
+# ===== Instalador gráfico (Calamares) =====
+calamares
+calamares-settings-debian
+squashfs-tools
+rsync
+cryptsetup
+lvm2
+os-prober
+efibootmgr
+grub-pc-bin
+grub-efi-amd64-bin
+grub-efi-amd64-signed
+shim-signed

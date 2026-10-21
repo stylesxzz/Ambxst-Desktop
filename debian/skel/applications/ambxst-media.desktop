@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Filmes, Séries e Animes
+Comment=Instala (1º toque) e abre ani-cli (animes) e lobster (filmes e séries) com mpv
+Exec=/home/ambxst/.local/bin/ambxst-apps media
+Icon=/home/ambxst/.local/share/ambxst/icons/ambxst-media.svg
+Terminal=false
+Categories=AudioVideo;Video;Player;
+Keywords=filmes;series;animes;anime;assistir;movies;tv;streaming;mpv;

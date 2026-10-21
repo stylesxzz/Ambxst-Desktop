@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Papel de parede
+Comment=Papel de parede (Infynit AI)
+Exec=/home/ambxst/.local/bin/ambxst-wallpaper
+Icon=preferences-desktop-wallpaper
+Terminal=false
+Categories=Settings;

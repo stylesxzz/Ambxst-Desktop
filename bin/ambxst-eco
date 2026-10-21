@@ -1,0 +1,14 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# ambxst-eco [on|off|status] - modo econômico de memória. (roda no TERMUX)
+set -u
+LIB="${AMBXST_HOME:-$HOME/.ambxst}/lib/common.sh"
+[ -f "$LIB" ] || { echo "Infynit AI não instalado." >&2; exit 1; }
+# shellcheck source=/dev/null
+. "$LIB"
+require_installed
+case "${1:-status}" in
+  on)  set_conf AMBXST_ECO 1; ok "Modo econômico LIGADO (sem ícones de desktop/pcmanfm, sem áudio, sem compositor). Aplique: ambxst-restart" ;;
+  off) set_conf AMBXST_ECO 0; ok "Modo econômico DESLIGADO. Aplique: ambxst-restart" ;;
+  status) [ "$(get_conf AMBXST_ECO 0)" = 1 ] && echo "econômico: LIGADO" || echo "econômico: desligado" ;;
+  *) echo "Uso: ambxst-eco [on|off|status]"; exit 2 ;;
+esac

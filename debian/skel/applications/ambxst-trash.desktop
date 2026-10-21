@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Lixeira
+Exec=/home/ambxst/.local/bin/ambxst-trash
+Icon=user-trash
+Terminal=false
+Categories=System;

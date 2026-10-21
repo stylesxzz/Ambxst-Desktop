@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Papel de parede
+Exec=/home/ambxst/.local/bin/ambxst-wallpaper
+Icon=preferences-desktop-wallpaper
+Terminal=false

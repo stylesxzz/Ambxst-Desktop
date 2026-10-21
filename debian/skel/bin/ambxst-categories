@@ -1,0 +1,17 @@
+#!/bin/bash
+# ambxst-categories - escolhe uma categoria e lista só os aplicativos dela.
+pkill -u "$(id -u)" -x rofi 2>/dev/null && exit 0
+choice=$(printf '%s\n' "Internet" "Escritório" "Gráficos" "Desenvolvimento" "Multimídia" "Acessórios" "Sistema" "Configurações" \
+  | rofi -dmenu -i -no-custom -p "Categorias" -theme-str 'window{width:460px;} listview{lines:5;}')
+case "$choice" in
+  Internet) cat="Network" ;;
+  Escritório) cat="Office" ;;
+  Gráficos) cat="Graphics" ;;
+  Desenvolvimento) cat="Development" ;;
+  Multimídia) cat="AudioVideo" ;;
+  Acessórios) cat="Utility" ;;
+  Sistema) cat="System" ;;
+  Configurações) cat="Settings" ;;
+  *) exit 0 ;;
+esac
+exec rofi -show drun -show-icons -drun-categories "$cat"

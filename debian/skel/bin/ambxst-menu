@@ -1,0 +1,4 @@
+#!/bin/bash
+# ambxst-menu - menu Iniciar (busca de aplicativos, toque ou teclado).
+pkill -u "$(id -u)" -x rofi 2>/dev/null && exit 0   # segundo toque fecha
+exec rofi -show drun -modi drun,run,window -show-icons -theme-str 'entry { placeholder: "Buscar aplicativos..."; }'

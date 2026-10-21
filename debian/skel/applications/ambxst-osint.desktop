@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=OSINT
+Comment=Lista de ferramentas OSINT (theHarvester, Sherlock, Holehe, ExifTool) - escolha uma para instalar e abrir
+Exec=/home/ambxst/.local/bin/ambxst-apps osint
+Icon=/home/ambxst/.local/share/ambxst/icons/ambxst-osint.svg
+Terminal=false
+Categories=Security;Development;
+Keywords=osint;investigacao;reconhecimento;theharvester;sherlock;holehe;exiftool;

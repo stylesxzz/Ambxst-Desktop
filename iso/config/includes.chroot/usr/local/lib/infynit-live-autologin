@@ -1,0 +1,9 @@
+#!/bin/sh
+# Escreve o login automático do LightDM somente quando o sistema inicia no modo live.
+mkdir -p /etc/lightdm/lightdm.conf.d
+cat > /etc/lightdm/lightdm.conf.d/60-infynit-live-autologin.conf <<'CONF'
+[Seat:*]
+autologin-user=ambxst
+autologin-user-timeout=0
+autologin-session=infynit-ai
+CONF

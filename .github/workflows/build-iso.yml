@@ -1,0 +1,52 @@
+name: Build ISO
+
+# Gera a ISO do Infynit AI (Debian 13 + live-build) na nuvem do GitHub.
+# Rode em: Actions > Build ISO > Run workflow. A ISO aparece em "Artifacts" no fim (~40-90 min).
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Perfil: full (todos os apps) ou lite (essencial)"
+        type: choice
+        options: [full, lite]
+        default: full
+      security:
+        description: "Incluir ferramentas de segurança (nmap, wireshark, sqlmap, hydra...)"
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  iso:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Liberar espaço no runner (a ISO full precisa de ~25 GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune --all --force >/dev/null
+          df -h /
+
+      - name: Construir a ISO (contêiner Debian trixie)
+        env:
+          PROFILE: ${{ inputs.profile || 'full' }}
+          SECURITY: ${{ inputs.security && '--security' || '' }}
+        run: bash iso/docker-build.sh --profile "$PROFILE" $SECURITY
+
+      - name: Mostrar tamanho e checksum
+        run: |
+          ls -lh iso/out
+          cat iso/out/*.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: infynit-ai-iso
+          path: iso/out/*
+          compression-level: 0
+          retention-days: 14

@@ -1,0 +1,60 @@
+#!/bin/bash
+# ambxst-session - roda DENTRO do Debian (usuário ambxst). Chamado por ambxst-start.
+CONF="$HOME/.config/ambxst/ambxst.conf"
+# shellcheck source=/dev/null
+[ -f "$CONF" ] && . "$CONF"
+
+export DISPLAY="${DISPLAY:-:0}"
+export XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
+export XDG_SESSION_TYPE=x11
+export XDG_CURRENT_DESKTOP=Openbox
+export GDK_BACKEND=x11
+export NO_AT_BRIDGE=1
+export LIBGL_ALWAYS_SOFTWARE=1
+export LANG="${LANG:-C.UTF-8}"
+export PATH="$HOME/.local/bin:$PATH"
+export AMBXST_ECO="${AMBXST_ECO:-0}"
+mkdir -p "$XDG_RUNTIME_DIR" "$HOME/.cache/ambxst"
+chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null
+
+LOG="$HOME/.cache/ambxst/session.log"
+if [ -f "$LOG" ] && [ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -gt 1048576 ]; then mv -f "$LOG" "$LOG.1"; fi
+exec >>"$LOG" 2>&1
+echo "=== $(date '+%F %T') sessão Infynit AI (eco=$AMBXST_ECO, DISPLAY=$DISPLAY) ==="
+
+# Espera o servidor X (Termux:X11) responder.
+for _ in $(seq 1 40); do
+  xdpyinfo >/dev/null 2>&1 && break
+  [ -S "/tmp/.X11-unix/X${DISPLAY#:}" ] && xset q >/dev/null 2>&1 && break
+  sleep 0.5
+done
+if ! xset q >/dev/null 2>&1; then
+  echo "ERRO: não consegui conectar ao display $DISPLAY (o servidor Termux:X11 está rodando? veja ambxst-status no Termux)"
+  exit 1
+fi
+
+cleanup() {
+  for p in tint2 pcmanfm dunst picom feh; do pkill -u "$(id -u)" -x "$p" 2>/dev/null; done
+  pkill -u "$(id -u)" -f "ambxst-panel" 2>/dev/null
+  return 0
+}
+
+while true; do
+  START=$(date +%s)
+  rm -f /tmp/ambxst-restart
+  dbus-run-session -- bash -c '
+    "$HOME/.local/bin/ambxst-autostart" &
+    exec openbox --config-file "$HOME/.config/openbox/rc.xml"
+  '
+  RC=$?
+  echo "openbox terminou (rc=$RC)"
+  cleanup
+  if [ -f /tmp/ambxst-restart ]; then
+    echo "reiniciando sessão gráfica a pedido do usuário"
+    rm -f /tmp/ambxst-restart; sleep 1; continue
+  fi
+  # Se caiu em menos de 5 s sem pedido, não entra em loop infinito.
+  [ $(( $(date +%s) - START )) -lt 5 ] && { echo "Openbox caiu cedo demais; abortando (veja o log acima)."; break; }
+  break
+done
+echo "=== sessão encerrada ==="

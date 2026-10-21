@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=GitBot
+Comment=Instala (1º toque, só com Claude Code ou OpenCode) e abre o GitBot no navegador
+Exec=/home/ambxst/.local/bin/ambxst-apps gitbot
+Icon=/home/ambxst/.local/share/ambxst/icons/ambxst-gitbot.svg
+Terminal=false
+Categories=Development;
+Keywords=gitbot;bots;agentes;ia;ai;

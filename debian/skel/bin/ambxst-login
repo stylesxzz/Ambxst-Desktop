@@ -1,0 +1,410 @@
+#!/usr/bin/env python3
+"""
+ambxst-login - tela de login / criação de conta do Infynit AI.
+
+No 1º uso (sem conta ainda) mostra "Criar conta" (usuário + senha). Nas próximas
+vezes mostra "Entrar" com a senha. Sem argumentos: roda como portão de entrada da
+sessão (chamado pelo ambxst-autostart) - não deixa fechar a janela sem autenticar,
+e permite criar conta se ainda não existir. Com --lock: tela de bloqueio (usada
+pelo ambxst-power/"Bloquear tela"); exige que a conta já exista, não oferece criar.
+
+Sai com código 0 quando autentica com sucesso; código != 0 em qualquer outro caso
+(ex.: --lock sem conta existente). Essa senha NÃO é a senha do sistema Linux: é só
+uma trava de acesso ao desktop Infynit AI, guardada (hash PBKDF2, não a senha em
+texto puro) em ~/.config/ambxst/auth.json.
+"""
+import base64
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import sys
+import time
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+HOME = os.path.expanduser("~")
+CONF_DIR = os.path.join(HOME, ".config", "ambxst")
+AUTH_FILE = os.path.join(CONF_DIR, "auth.json")
+ICON_DIR = os.path.join(HOME, ".local", "share", "ambxst", "icons")
+AVATAR_CANDIDATES = [
+    os.path.join(ICON_DIR, "login-avatar.jpg"),
+    os.path.join(ICON_DIR, "login-avatar.png"),
+]
+WALLPAPER_CANDIDATES = [
+    os.path.join(HOME, "Pictures", "Wallpapers", "infynit.jpg"),
+    os.path.join(HOME, "Pictures", "Wallpapers", "skull.jpg"),
+]
+ITERATIONS = 200_000
+MIN_PASS_LEN = 6
+LOCK_MODE = "--lock" in sys.argv[1:]
+
+
+def first_existing(paths):
+    for p in paths:
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def now_iso():
+    return GLib.DateTime.new_now_local().format_iso8601()
+
+
+# ---------------------------------------------------------------- credenciais
+def hash_password(password, salt=None):
+    if salt is None:
+        salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, ITERATIONS)
+    return salt, dk
+
+
+def save_account(username, password):
+    salt, dk = hash_password(password)
+    os.makedirs(CONF_DIR, exist_ok=True)
+    data = {
+        "username": username,
+        "salt": base64.b64encode(salt).decode("ascii"),
+        "hash": base64.b64encode(dk).decode("ascii"),
+        "iterations": ITERATIONS,
+        "created": now_iso(),
+    }
+    tmp = AUTH_FILE + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, AUTH_FILE)
+
+
+def load_account():
+    try:
+        with open(AUTH_FILE, "r") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and "username" in data and "hash" in data and "salt" in data:
+            return data
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
+def check_password(data, password):
+    try:
+        salt = base64.b64decode(data["salt"])
+        expect = base64.b64decode(data["hash"])
+        iters = int(data.get("iterations", ITERATIONS))
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iters)
+        return hmac.compare_digest(dk, expect)
+    except (KeyError, ValueError, TypeError):
+        return False
+
+
+# ---------------------------------------------------------------- aparência
+def css_escape_uri(path):
+    return path.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def build_css():
+    wallpaper = first_existing(WALLPAPER_CANDIDATES)
+    avatar = first_existing(AVATAR_CANDIDATES)
+
+    root_bg = (
+        'background-image: linear-gradient(rgba(10,5,6,.74), rgba(10,5,6,.88)), '
+        f'url("{css_escape_uri(wallpaper)}");\n  background-size: cover;\n  background-position: center;'
+        if wallpaper
+        else "background-color: #0d0909;"
+    )
+    avatar_css = (
+        f'background-image: url("{css_escape_uri(avatar)}"); background-size: cover; background-position: center;'
+        if avatar
+        else "background-color: #2a1414;"
+    )
+
+    return f"""
+    .login-root {{ {root_bg} }}
+    .login-card {{
+      background-color: rgba(18, 8, 9, .62);
+      border: 1px solid rgba(255, 120, 110, .18);
+      border-radius: 20px;
+    }}
+    .login-title {{ color: #fff2ef; font-size: 26px; font-weight: 800; }}
+    .login-sub {{ color: #e7c9c6; font-size: 13px; }}
+    .login-field-label {{ color: #f0d9d6; font-size: 12px; font-weight: 600; }}
+    .login-entry, .login-entry entry {{
+      background-color: rgba(0, 0, 0, .35);
+      color: #fff2ef;
+      border: 1px solid rgba(255, 150, 140, .25);
+      border-radius: 10px;
+      padding: 9px 12px;
+      caret-color: #ff8f7a;
+    }}
+    .login-entry:focus, .login-entry entry:focus {{ border-color: #ff6b57; }}
+    .login-btn-primary {{
+      background-color: #c6262c;
+      background-image: none;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 700;
+    }}
+    .login-btn-primary:hover {{ background-color: #e0373b; }}
+    .login-btn-primary:disabled {{ background-color: #5c2426; color: rgba(255,255,255,.6); }}
+    .login-link {{ color: #ff9a8c; font-size: 12.5px; }}
+    .login-link:hover {{ color: #ffb8ad; }}
+    .login-error {{ color: #ffb4b4; font-size: 12.5px; }}
+    .login-check {{ color: #e7c9c6; font-size: 12.5px; }}
+    .login-avatar {{ {avatar_css} border-radius: 50%; border: 3px solid rgba(255, 120, 110, .55); }}
+    .login-brand {{ color: #ffd9d2; font-size: 15px; font-weight: 700; letter-spacing: .5px; }}
+    """.encode("utf-8")
+
+
+def link_button(text):
+    btn = Gtk.Button()
+    btn.set_relief(Gtk.ReliefStyle.NONE)
+    lbl = Gtk.Label()
+    lbl.set_markup(f'<u>{GLib.markup_escape_text(text)}</u>')
+    lbl.get_style_context().add_class("login-link")
+    btn.add(lbl)
+    btn.get_style_context().add_class("login-link")
+    return btn
+
+
+def field(label_text):
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+    lbl = Gtk.Label(label=label_text, xalign=0)
+    lbl.get_style_context().add_class("login-field-label")
+    entry = Gtk.Entry()
+    entry.get_style_context().add_class("login-entry")
+    box.pack_start(lbl, False, False, 0)
+    box.pack_start(entry, False, False, 0)
+    return box, entry
+
+
+# ---------------------------------------------------------------- janela
+class LoginWindow(Gtk.Window):
+    def __init__(self, lock_mode):
+        super().__init__(title="Infynit AI")
+        self.lock_mode = lock_mode
+        self.result = False
+        self.attempts = 0
+
+        self.set_decorated(False)
+        self.set_keep_above(True)
+        self.fullscreen()
+        self.connect("delete-event", lambda *_: True)  # não deixa fechar sem autenticar
+        self.connect("key-press-event", self._on_key)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        root.get_style_context().add_class("login-root")
+        self.add(root)
+
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        left.set_halign(Gtk.Align.CENTER)
+        left.set_valign(Gtk.Align.CENTER)
+        left.set_hexpand(True)
+        root.pack_start(left, True, True, 0)
+
+        self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        self.card.get_style_context().add_class("login-card")
+        self.card.set_size_request(380, -1)
+        self.card.set_margin_top(34)
+        self.card.set_margin_bottom(34)
+        self.card.set_margin_start(34)
+        self.card.set_margin_end(34)
+        left.pack_start(self.card, False, False, 0)
+
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        right.set_halign(Gtk.Align.CENTER)
+        right.set_valign(Gtk.Align.CENTER)
+        right.set_hexpand(True)
+        avatar = Gtk.EventBox()
+        avatar.set_size_request(220, 220)
+        avatar.get_style_context().add_class("login-avatar")
+        right.pack_start(avatar, False, False, 0)
+        brand = Gtk.Label(label="INFYNIT AI")
+        brand.get_style_context().add_class("login-brand")
+        right.pack_start(brand, False, False, 0)
+        root.pack_start(right, True, True, 0)
+
+        account = load_account()
+        if lock_mode and not account:
+            self._fatal("Nenhuma conta foi criada ainda neste desktop.\nAbra o painel normalmente para criar uma.")
+            return
+        if account:
+            self._build_login(account)
+        else:
+            self._build_create()
+
+        self.show_all()
+
+    # -------------------------------------------------------- utilidades
+    def _fatal(self, text):
+        d = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.ERROR,
+                               buttons=Gtk.ButtonsType.OK, text=text)
+        d.run()
+        d.destroy()
+        self.result = False
+        Gtk.main_quit()
+
+    def _on_key(self, _widget, event):
+        if event.keyval == Gdk.KEY_Escape:
+            return True  # ignora Esc: não sai da tela sem autenticar
+        return False
+
+    def _clear(self):
+        for child in list(self.card.get_children()):
+            self.card.remove(child)
+
+    # -------------------------------------------------------- tela "Entrar"
+    def _build_login(self, account):
+        self._clear()
+        title = Gtk.Label(label="Bloqueado" if self.lock_mode else "Bem-vindo de volta!", xalign=0)
+        title.get_style_context().add_class("login-title")
+        self.card.pack_start(title, False, False, 0)
+
+        sub_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        sub = Gtk.Label(label=f"Entrando como {account['username']}" if self.lock_mode
+                         else "Não tem conta?", xalign=0)
+        sub.get_style_context().add_class("login-sub")
+        sub_box.pack_start(sub, False, False, 0)
+        if not self.lock_mode:
+            to_create = link_button("Criar conta")
+            to_create.connect("clicked", lambda *_: self._build_create())
+            sub_box.pack_start(to_create, False, False, 0)
+        self.card.pack_start(sub_box, False, False, 2)
+
+        user_box, user_entry = field("Usuário")
+        user_entry.set_text(account["username"])
+        user_entry.set_sensitive(False)
+        self.card.pack_start(user_box, False, False, 0)
+
+        pass_box, pass_entry = field("Senha")
+        pass_entry.set_visibility(False)
+        self.card.pack_start(pass_box, False, False, 0)
+
+        err = Gtk.Label(label="", xalign=0)
+        err.get_style_context().add_class("login-error")
+        self.card.pack_start(err, False, False, 0)
+
+        forgot = link_button("Esqueci minha senha")
+        forgot.set_halign(Gtk.Align.START)
+        forgot.connect("clicked", lambda *_: self._forgot_password())
+        self.card.pack_start(forgot, False, False, 0)
+
+        enter = Gtk.Button(label="Desbloquear" if self.lock_mode else "Entrar")
+        enter.get_style_context().add_class("login-btn-primary")
+        self.card.pack_start(enter, False, False, 6)
+
+        def try_login(*_a):
+            pw = pass_entry.get_text()
+            if check_password(account, pw):
+                self.result = True
+                Gtk.main_quit()
+                return
+            self.attempts += 1
+            err.set_text("Senha incorreta. Tente de novo.")
+            pass_entry.set_text("")
+            pass_entry.grab_focus()
+            time.sleep(min(0.3 + self.attempts * 0.5, 3.0))  # pequena espera a cada erro
+
+        enter.connect("clicked", try_login)
+        pass_entry.connect("activate", try_login)
+        self.card.show_all()
+        pass_entry.grab_focus()
+
+    def _forgot_password(self):
+        text = (
+            "A senha do Infynit AI é só uma trava local do desktop (não é a senha do Linux/Termux).\n\n"
+            "Para redefinir, troque para o app Termux (sem fechar esta tela) e rode:\n"
+            "  pkill -f ambxst-login; rm ~/.config/ambxst/auth.json\n\n"
+            "Depois reinicie a sessão (ambxst-restart) e crie a conta de novo."
+        )
+        d = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.INFO,
+                               buttons=Gtk.ButtonsType.OK, text="Esqueci minha senha")
+        d.format_secondary_text(text)
+        d.run()
+        d.destroy()
+
+    # -------------------------------------------------------- tela "Criar conta"
+    def _build_create(self):
+        self._clear()
+        title = Gtk.Label(label="Criar conta", xalign=0)
+        title.get_style_context().add_class("login-title")
+        self.card.pack_start(title, False, False, 0)
+
+        sub_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        sub = Gtk.Label(label="Já tem conta?", xalign=0)
+        sub.get_style_context().add_class("login-sub")
+        sub_box.pack_start(sub, False, False, 0)
+        account = load_account()
+        if account:
+            to_login = link_button("Entrar")
+            to_login.connect("clicked", lambda *_: self._build_login(account))
+            sub_box.pack_start(to_login, False, False, 0)
+        self.card.pack_start(sub_box, False, False, 2)
+
+        user_box, user_entry = field("Usuário")
+        self.card.pack_start(user_box, False, False, 0)
+        pass_box, pass_entry = field("Senha (mínimo 6 caracteres)")
+        pass_entry.set_visibility(False)
+        self.card.pack_start(pass_box, False, False, 0)
+        conf_box, conf_entry = field("Confirmar senha")
+        conf_entry.set_visibility(False)
+        self.card.pack_start(conf_box, False, False, 0)
+
+        err = Gtk.Label(label="", xalign=0)
+        err.get_style_context().add_class("login-error")
+        err.set_line_wrap(True)
+        self.card.pack_start(err, False, False, 0)
+
+        create = Gtk.Button(label="Criar conta")
+        create.get_style_context().add_class("login-btn-primary")
+        self.card.pack_start(create, False, False, 6)
+
+        def try_create(*_a):
+            username = user_entry.get_text().strip()
+            pw = pass_entry.get_text()
+            pw2 = conf_entry.get_text()
+            if not username:
+                err.set_text("Digite um nome de usuário.")
+                return
+            if len(pw) < MIN_PASS_LEN:
+                err.set_text(f"A senha precisa ter pelo menos {MIN_PASS_LEN} caracteres.")
+                return
+            if pw != pw2:
+                err.set_text("As senhas não são iguais.")
+                conf_entry.set_text("")
+                conf_entry.grab_focus()
+                return
+            save_account(username, pw)
+            self.result = True
+            Gtk.main_quit()
+
+        create.connect("clicked", try_create)
+        conf_entry.connect("activate", try_create)
+        self.card.show_all()
+        user_entry.grab_focus()
+
+
+def main():
+    if "-h" in sys.argv[1:] or "--help" in sys.argv[1:]:
+        print(__doc__)
+        return 0
+
+    provider = Gtk.CssProvider()
+    provider.load_from_data(build_css())
+    Gtk.StyleContext.add_provider_for_screen(
+        Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+
+    win = LoginWindow(LOCK_MODE)
+    Gtk.main()
+    return 0 if win.result else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

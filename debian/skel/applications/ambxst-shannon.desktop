@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Shannon
+Comment=Instala (1º toque) e abre o Shannon, pentester de IA (precisa de Docker para rodar testes)
+Exec=/home/ambxst/.local/bin/ambxst-apps shannon
+Icon=/home/ambxst/.local/share/ambxst/icons/ambxst-shannon.svg
+Terminal=false
+Categories=Development;Security;
+Keywords=shannon;keygraph;pentest;seguranca;security;

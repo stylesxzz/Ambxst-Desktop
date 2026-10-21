@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Menu Iniciar
+Comment=Menu Iniciar (Infynit AI)
+Exec=/home/ambxst/.local/bin/ambxst-menu
+Icon=start-here
+Terminal=false
+Categories=System;

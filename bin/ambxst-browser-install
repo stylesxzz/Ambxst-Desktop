@@ -1,0 +1,44 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# ambxst-browser-install [firefox|brave|all] - instala navegador dentro do Debian. (roda no TERMUX)
+set -u
+LIB="${AMBXST_HOME:-$HOME/.ambxst}/lib/common.sh"
+[ -f "$LIB" ] || { echo "Infynit AI não instalado." >&2; exit 1; }
+# shellcheck source=/dev/null
+. "$LIB"
+require_installed
+
+WHAT="${1:-firefox}"
+case "$WHAT" in firefox|brave|all) ;; -h|--help) echo "Uso: ambxst-browser-install [firefox|brave|all]"; exit 0 ;; *) err "Opção inválida: $WHAT (use firefox, brave ou all)"; exit 2 ;; esac
+
+install_firefox() {
+  info "Instalando Firefox ESR dentro do Debian (~250 MB)..."
+  proot-distro login "$AMBXST_DISTRO" -- bash -c 'export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --no-install-recommends firefox-esr' \
+    && ok "Firefox instalado. O ícone 'Navegador' da dock já funciona." \
+    || { err "Falha ao instalar o Firefox (veja o erro acima)."; return 1; }
+}
+
+install_brave() {
+  info "Instalando Brave (repositório oficial brave-browser-apt-release, arm64) — ~500 MB, demora..."
+  proot-distro login "$AMBXST_DISTRO" -- bash -c '
+    set -e
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg
+    install -d /usr/share/keyrings /etc/apt/sources.list.d
+    curl -fsSL https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg \
+      -o /usr/share/keyrings/brave-browser-archive-keyring.gpg
+    curl -fsSL https://brave-browser-apt-release.s3.brave.com/brave-browser.sources \
+      -o /etc/apt/sources.list.d/brave-browser-release.sources
+    apt-get update
+    apt-get install -y brave-browser
+  ' && ok "Brave instalado. Use o ícone Brave da dock (abre com --no-sandbox --disable-gpu, necessários no proot)." \
+    || { err "Falha ao instalar o Brave (veja o erro acima)."; return 1; }
+}
+
+RC=0
+case "$WHAT" in
+  firefox) install_firefox || RC=1 ;;
+  brave)   install_brave || RC=1 ;;
+  all)     install_firefox || RC=1; install_brave || RC=1 ;;
+esac
+exit "$RC"

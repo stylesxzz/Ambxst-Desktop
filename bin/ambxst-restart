@@ -1,0 +1,10 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# ambxst-restart - reinicia o ambiente completo. (roda no TERMUX)
+set -u
+LIB="${AMBXST_HOME:-$HOME/.ambxst}/lib/common.sh"
+[ -f "$LIB" ] || { echo "Infynit AI não instalado." >&2; exit 1; }
+# shellcheck source=/dev/null
+. "$LIB"
+ambxst-stop || true
+sleep 2
+exec ambxst-start "$@"

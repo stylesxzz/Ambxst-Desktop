@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Instalar Infynit AI
+Comment=Instala o Infynit AI neste computador
+Exec=sudo -E calamares
+Icon=system-software-install
+Terminal=false
+Categories=System;

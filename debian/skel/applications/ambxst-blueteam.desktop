@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Blue Team
+Comment=Lista de ferramentas Blue Team (ClamAV, YARA, Lynis, chkrootkit) - escolha uma para instalar e abrir
+Exec=/home/ambxst/.local/bin/ambxst-apps blueteam
+Icon=/home/ambxst/.local/share/ambxst/icons/ambxst-blueteam.svg
+Terminal=false
+Categories=Security;Development;
+Keywords=blueteam;defesa;antivirus;clamav;yara;lynis;chkrootkit;

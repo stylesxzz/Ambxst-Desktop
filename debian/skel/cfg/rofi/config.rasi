@@ -1,0 +1,59 @@
+/* Infynit AI - menu Iniciar / seletores (rofi). Tema embutido; alvos grandes para toque. */
+configuration {
+  modi: "drun,run,window";
+  show-icons: true;
+  icon-theme: "Papirus-Dark";
+  font: "JetBrains Mono 13";
+  display-drun: "Apps";
+  display-run: "Executar";
+  display-window: "Janelas";
+  drun-display-format: "{name}";
+  terminal: "xfce4-terminal";
+  matching: "fuzzy";
+  sort: true;
+  click-to-exit: true;
+  /* Toque no Termux:X11 = clique simples: aceita o item direto (padrão do rofi seria clique duplo) */
+  me-select-entry: "";
+  me-accept-entry: "MousePrimary";
+}
+
+* {
+  bg: #0d0909d9;
+  bg-alt: #181111cc;
+  bg-sel: #ff8f7a;
+  fg: #f5e6e2;
+  fg-dim: #a58f8a;
+  fg-sel: #1a0d0b;
+  border-c: #3a2420;
+  background-color: transparent;
+  text-color: @fg;
+}
+
+window {
+  location: center;
+  anchor: center;
+  width: 720px;
+  background-color: @bg;
+  border: 2px;
+  border-color: @border-c;
+  border-radius: 20px;
+}
+mainbox { children: [ inputbar, listview ]; spacing: 10px; padding: 14px; }
+inputbar {
+  children: [ prompt, entry ];
+  spacing: 10px;
+  padding: 12px 14px;
+  background-color: @bg-alt;
+  border: 1px;
+  border-color: @bg-sel;
+  border-radius: 12px;
+}
+prompt { text-color: @bg-sel; }
+entry { placeholder: ""; placeholder-color: @fg-dim; }
+listview { lines: 5; columns: 1; fixed-height: false; scrollbar: true; cycle: true; spacing: 6px; }
+element { padding: 10px; spacing: 12px; border-radius: 12px; }
+element normal.normal { background-color: transparent; text-color: @fg; }
+element alternate.normal { background-color: transparent; text-color: @fg; }
+element selected.normal { background-color: @bg-sel; text-color: @fg-sel; }
+element-icon { size: 34px; background-color: transparent; }
+element-text { vertical-align: 0.5; background-color: transparent; text-color: inherit; }

@@ -1,0 +1,32 @@
+# ===== Opcional (--security): ferramentas de segurança/pentest do repositório Debian =====
+# (as mesmas dos botões OSINT/Red Team/Blue Team do painel - já vêm instaladas, sem precisar clicar)
+theharvester
+clamav
+yara
+lynis
+chkrootkit
+nmap
+wireshark
+tcpdump
+netcat-openbsd
+whois
+dnsutils
+traceroute
+mtr-tiny
+sqlmap
+hydra
+john
+hashcat
+aircrack-ng
+nikto
+gobuster
+proxychains4
+tor
+torsocks
+macchanger
+binwalk
+libimage-exiftool-perl
+sslscan
+foremost
+steghide
+ettercap-graphical

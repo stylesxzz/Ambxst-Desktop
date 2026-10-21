@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Navegador
+Exec=/home/ambxst/.local/bin/ambxst-browser
+Icon=web-browser
+Terminal=false

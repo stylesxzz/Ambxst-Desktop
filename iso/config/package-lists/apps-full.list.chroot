@@ -1,0 +1,62 @@
+# ===== Perfil FULL: os aplicativos de um desktop Linux completo =====
+# --- Internet
+firefox-esr
+firefox-esr-l10n-pt-br
+thunderbird
+thunderbird-l10n-pt-br
+transmission-gtk
+filezilla
+remmina
+remmina-plugin-rdp
+remmina-plugin-vnc
+# --- Escritório e documentos
+libreoffice-writer
+libreoffice-calc
+libreoffice-impress
+libreoffice-draw
+libreoffice-gtk3
+libreoffice-l10n-pt-br
+hunspell-pt-br
+evince
+galculator
+xarchiver
+p7zip-full
+unrar-free
+simple-scan
+keepassxc
+# --- Multimídia e criação
+vlc
+mpv
+ffmpeg
+yt-dlp
+audacity
+gimp
+inkscape
+eog
+flameshot
+# --- Botão "Filmes, Séries e Animes" (ani-cli e lobster precisam disto)
+fzf
+jq
+openssl
+patch
+html-xml-utils
+# --- Sistema
+gparted
+gnome-disk-utility
+baobab
+btop
+xfce4-taskmanager
+synaptic
+timeshift
+ufw
+gufw
+fastfetch
+lm-sensors
+# --- Desenvolvimento (Claude Code, OpenCode, Shannon, GitBot)
+build-essential
+python3-pip
+python3-venv
+nodejs
+npm
+geany
+docker.io

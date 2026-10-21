@@ -1,0 +1,572 @@
+#!/usr/bin/env python3
+"""ambxst-panel - painel superior do Infynit AI (roda dentro do Debian).
+
+Calendário, estado do sistema (RAM/CPU/rede/volume), notificações (histórico do
+dunst) e atalhos. Tocar de novo em AMBXST (ou perder o foco) fecha o painel.
+Cada botão executa uma ação real; nada aqui é decorativo.
+"""
+import json
+import os
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import threading
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+HOME = os.path.expanduser("~")
+RUNDIR = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+PIDFILE = os.path.join(RUNDIR, "ambxst-panel.pid")
+CONF = os.path.join(HOME, ".config/ambxst/ambxst.conf")
+os.environ["PATH"] = os.path.join(HOME, ".local/bin") + os.pathsep + os.environ.get("PATH", "")
+
+CSS = b"""
+window.ambxst { background-color: #0d0909; border: 1px solid #3a2420; }
+window.ambxst.rgba { background-color: rgba(13,9,9,0.86); border-radius: 20px; }
+.card { background-color: rgba(24,17,17,0.85); border: 1px solid #2a1c19; border-radius: 14px; padding: 10px; }
+.title { color: #ff8f7a; font-weight: bold; }
+.dim { color: #a58f8a; }
+label { color: #f5e6e2; }
+button { background-image: none; background-color: #241818; color: #f5e6e2; border: 1px solid #3a2420;
+         border-radius: 12px; padding: 10px 12px; min-height: 28px; }
+button:hover { background-color: #3a2420; }
+button:active, button.on { background-color: #ff8f7a; color: #1a0d0b; }
+button.close { padding: 2px 10px; min-height: 0; }
+progressbar trough { background-color: #241818; border-radius: 6px; min-height: 8px; border: none; }
+progressbar progress { background-color: #ff8f7a; border-radius: 6px; min-height: 8px; border: none; }
+calendar { background-color: #181111; color: #f5e6e2; }
+calendar:selected { background-color: #ff8f7a; color: #1a0d0b; }
+scale trough { background-color: #241818; min-height: 8px; border-radius: 6px; }
+scale highlight { background-color: #ff8f7a; border-radius: 6px; }
+scale slider { background-color: #ffb4a2; border-radius: 12px; min-width: 22px; min-height: 22px; }
+scrolledwindow { background-color: transparent; }
+"""
+
+
+def toggle_existing():
+    """Se já existe um painel aberto, fecha-o e informa True (comportamento de toggle)."""
+    try:
+        with open(PIDFILE) as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 0)
+        with open("/proc/%d/cmdline" % pid, "rb") as f:
+            if b"ambxst-panel" in f.read():
+                os.kill(pid, signal.SIGTERM)
+                return True
+    except (OSError, ValueError):
+        pass
+    return False
+
+
+def read_conf():
+    data = {}
+    try:
+        with open(CONF) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                data[k.strip()] = v.strip().strip('"')
+    except OSError:
+        pass
+    return data
+
+
+def write_conf(key, value):
+    lines = []
+    try:
+        with open(CONF) as f:
+            lines = f.read().splitlines()
+    except OSError:
+        pass
+    out, found = [], False
+    for line in lines:
+        if line.strip().startswith(key + "="):
+            out.append("%s=%s" % (key, value))
+            found = True
+        else:
+            out.append(line)
+    if not found:
+        out.append("%s=%s" % (key, value))
+    os.makedirs(os.path.dirname(CONF), exist_ok=True)
+    tmp = CONF + ".tmp"
+    with open(tmp, "w") as f:
+        f.write("\n".join(out) + "\n")
+    os.replace(tmp, CONF)
+
+
+def run_detached(cmd):
+    try:
+        subprocess.Popen(cmd, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as exc:
+        notify("Infynit AI", "Falha ao executar %s: %s" % (cmd[0], exc))
+
+
+def notify(title, body):
+    if shutil.which("notify-send"):
+        try:
+            subprocess.Popen(["notify-send", title, body],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
+
+
+def mem_info():
+    try:
+        d = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                k, v = line.split(":", 1)
+                d[k] = int(v.split()[0])
+        total = d["MemTotal"]
+        avail = d.get("MemAvailable", d.get("MemFree", 0))
+        return total, total - avail
+    except (OSError, KeyError, ValueError):
+        return None
+
+
+class CpuMeter:
+    def __init__(self):
+        self.prev = self._read()
+
+    @staticmethod
+    def _read():
+        try:
+            with open("/proc/stat") as f:
+                parts = f.readline().split()[1:]
+            vals = [int(x) for x in parts]
+            idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
+            return idle, sum(vals)
+        except (OSError, ValueError, IndexError):
+            return None
+
+    def percent(self):
+        cur = self._read()
+        if cur is None or self.prev is None:
+            self.prev = cur
+            return None
+        didle, dtotal = cur[0] - self.prev[0], cur[1] - self.prev[1]
+        self.prev = cur
+        if dtotal <= 0:
+            return None
+        return max(0.0, min(100.0, 100.0 * (1.0 - didle / dtotal)))
+
+
+def uptime_text():
+    try:
+        with open("/proc/uptime") as f:
+            secs = int(float(f.read().split()[0]))
+        h, m = secs // 3600, (secs % 3600) // 60
+        return "%dh %02dm" % (h, m)
+    except (OSError, ValueError, IndexError):
+        return "n/d"
+
+
+def get_volume():
+    if not shutil.which("pactl"):
+        return None
+    try:
+        out = subprocess.run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"],
+                             capture_output=True, text=True, timeout=2).stdout
+        for tok in out.replace("/", " ").split():
+            if tok.endswith("%"):
+                return int(tok[:-1])
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return None
+
+
+def get_notifications(limit=6):
+    if not shutil.which("dunstctl"):
+        return []
+    try:
+        out = subprocess.run(["dunstctl", "history"], capture_output=True, text=True, timeout=3).stdout
+        items = json.loads(out)["data"][0]
+        res = []
+        for it in items[:limit]:
+            res.append((it.get("summary", {}).get("data", ""), it.get("body", {}).get("data", "")))
+        return res
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError):
+        return []
+
+
+# Ferramentas extras (botões que instalam no 1º toque e abrem depois): rótulo, id do ambxst-apps
+TOOLS = [
+    ("Claude Code", "claude-code"),
+    ("OpenCode", "opencode"),
+    ("Shannon", "shannon"),
+    ("GitBot", "gitbot"),
+    ("Filmes e Animes", "media"),
+]
+
+# Categorias de segurança: cada botão abre uma lista de ferramentas (não "instala" o botão em si).
+SEC_CATEGORIES = [
+    ("OSINT", "osint"),
+    ("Red Team", "redteam"),
+    ("Blue Team", "blueteam"),
+    ("Purple Team", "purpleteam"),
+]
+
+
+def tool_installed(tid):
+    if tid == "claude-code":
+        return shutil.which("claude") is not None
+    if tid == "opencode":
+        return shutil.which("opencode") is not None
+    if tid == "shannon":
+        return os.path.isfile(os.path.join(HOME, ".local/lib/node_modules/@keygraph/shannon/package.json"))
+    if tid == "gitbot":
+        return shutil.which("gitbot") is not None
+    if tid == "media":
+        return all(shutil.which(b) for b in ("mpv", "fzf", "ani-cli", "lobster"))
+    if tid in ("osint", "redteam", "blueteam", "purpleteam"):
+        return True  # é um menu, não um "instalar"; nunca leva o prefixo "Instalar "
+    return False
+
+
+def card(title=None):
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+    box.get_style_context().add_class("card")
+    if title:
+        lab = Gtk.Label(label=title, xalign=0)
+        lab.get_style_context().add_class("title")
+        box.pack_start(lab, False, False, 0)
+    return box
+
+
+class Panel(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Infynit AI Panel")
+        self.get_style_context().add_class("ambxst")
+        screen = self.get_screen()
+        vis = screen.get_rgba_visual()
+        if vis is not None and screen.is_composited():
+            self.set_visual(vis)
+            self.set_app_paintable(True)
+            self.get_style_context().add_class("rgba")
+        self.set_decorated(False)
+        self.set_skip_taskbar_hint(True)
+        self.set_keep_above(True)
+        self.set_resizable(False)
+        self.had_focus = False
+        self.cpu = CpuMeter()
+        self.net_state = None
+        self.tick_n = 0
+        self.volume_lock = False
+
+        sw, sh = self.screen_size()
+        self.sw, self.sh = sw, sh
+        wide = sw >= 760
+        width = min(780, sw - 16)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        outer.set_border_width(10)
+
+        header = Gtk.Box(spacing=8)
+        t = Gtk.Label(label="INFYNIT AI", xalign=0)
+        t.get_style_context().add_class("title")
+        header.pack_start(t, True, True, 0)
+        close = Gtk.Button(label="Fechar")
+        close.get_style_context().add_class("close")
+        close.connect("clicked", lambda *_: self.quit())
+        header.pack_end(close, False, False, 0)
+        outer.pack_start(header, False, False, 0)
+
+        # --- calendário
+        cal_card = card("Calendário")
+        self.calendar = Gtk.Calendar()
+        cal_card.pack_start(self.calendar, False, False, 0)
+
+        # --- sistema
+        sys_card = card("Sistema")
+        self.lbl_ram = Gtk.Label(xalign=0)
+        self.bar_ram = Gtk.ProgressBar()
+        self.lbl_cpu = Gtk.Label(xalign=0)
+        self.bar_cpu = Gtk.ProgressBar()
+        self.lbl_misc = Gtk.Label(xalign=0)
+        self.lbl_misc.get_style_context().add_class("dim")
+        for w in (self.lbl_ram, self.bar_ram, self.lbl_cpu, self.bar_cpu, self.lbl_misc):
+            sys_card.pack_start(w, False, False, 0)
+        self.vol_row = None
+        vol = get_volume()
+        if vol is not None:
+            self.vol_row = Gtk.Box(spacing=8)
+            self.vol_row.pack_start(Gtk.Label(label="Volume"), False, False, 0)
+            self.vol_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+            self.vol_scale.set_draw_value(False)
+            self.vol_scale.set_value(vol)
+            self.vol_scale.connect("value-changed", self.on_volume)
+            self.vol_row.pack_start(self.vol_scale, True, True, 0)
+            sys_card.pack_start(self.vol_row, False, False, 0)
+
+        # --- notificações
+        n_card = card("Notificações")
+        self.n_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        n_card.pack_start(self.n_box, True, True, 0)
+        clear = Gtk.Button(label="Limpar histórico")
+        clear.connect("clicked", self.on_clear_notifications)
+        n_card.pack_end(clear, False, False, 0)
+
+        # --- atalhos
+        a_card = card("Atalhos")
+        grid = Gtk.Grid(column_spacing=8, row_spacing=8, column_homogeneous=True)
+        self.eco_btn = Gtk.Button()
+        actions = [
+            ("Terminal", ["xfce4-terminal"]),
+            ("Arquivos", ["pcmanfm"]),
+            ("Brave", ["ambxst-brave"]),
+            ("TwinDesk", ["ambxst-twindesk"]),
+            ("Lixeira", ["ambxst-trash"]),
+            ("Aplicativos", ["ambxst-menu"]),
+            ("Categorias", ["ambxst-categories"]),
+            ("Papel de parede", ["ambxst-wallpaper"]),
+            ("Configurações", ["ambxst-settings"]),
+            ("Energia", ["ambxst-power"]),
+        ]
+        cols = 4 if wide else 2
+        for i, (label, cmd) in enumerate(actions):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", self.on_action, cmd)
+            grid.attach(b, i % cols, i // cols, 1, 1)
+        self.eco_btn.connect("clicked", self.on_eco)
+        idx = len(actions)
+        grid.attach(self.eco_btn, idx % cols, idx // cols, 1, 1)
+        a_card.pack_start(grid, False, False, 0)
+        self.refresh_eco_label()
+
+        # --- ferramentas de IA e mídia (instalam no primeiro toque)
+        t_card = card("Ferramentas")
+        t_grid = Gtk.Grid(column_spacing=8, row_spacing=8, column_homogeneous=True)
+        t_cols = 3 if wide else 2
+        for i, (label, tid) in enumerate(TOOLS):
+            have = tool_installed(tid)
+            b = Gtk.Button(label=label if have else "Instalar " + label)
+            if have:
+                b.get_style_context().add_class("on")
+            b.set_tooltip_text("Abrir" if have else "Instalar (abre um terminal com o progresso)")
+            b.connect("clicked", self.on_action, ["ambxst-apps", tid])
+            t_grid.attach(b, i % t_cols, i // t_cols, 1, 1)
+        t_card.pack_start(t_grid, False, False, 0)
+
+        # --- segurança: OSINT / Red Team / Blue Team / Purple Team (cada um abre uma lista)
+        s_card = card("Segurança")
+        s_grid = Gtk.Grid(column_spacing=8, row_spacing=8, column_homogeneous=True)
+        s_cols = 4 if wide else 2
+        for i, (label, tid) in enumerate(SEC_CATEGORIES):
+            b = Gtk.Button(label=label)
+            b.get_style_context().add_class("on")
+            b.set_tooltip_text("Ver ferramentas desta categoria")
+            b.connect("clicked", self.on_action, ["ambxst-apps", tid])
+            s_grid.attach(b, i % s_cols, i // s_cols, 1, 1)
+        s_card.pack_start(s_grid, False, False, 0)
+
+        if wide:
+            row = Gtk.Box(spacing=10, homogeneous=True)
+            row.pack_start(cal_card, True, True, 0)
+            row.pack_start(sys_card, True, True, 0)
+            row.pack_start(n_card, True, True, 0)
+            outer.pack_start(row, False, False, 0)
+        else:
+            for c in (cal_card, sys_card, n_card):
+                outer.pack_start(c, False, False, 0)
+        outer.pack_start(a_card, False, False, 0)
+        outer.pack_start(t_card, False, False, 0)
+        outer.pack_start(s_card, False, False, 0)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_propagate_natural_height(True)
+        scroller.set_max_content_height(max(240, sh - 110))
+        scroller.set_min_content_width(width)
+        scroller.add(outer)
+        self.add(scroller)
+
+        self.connect("focus-in-event", lambda *_: setattr(self, "had_focus", True) or False)
+        self.connect("focus-out-event", self.on_focus_out)
+        self.connect("key-press-event", self.on_key)
+        self.connect("destroy", lambda *_: self.cleanup())
+
+        self.update_stats()
+        self.update_notifications()
+        self.check_net_async()
+        GLib.timeout_add(2000, self.on_tick)
+        self.show_all()
+        self.move(max(0, (sw - width) // 2), 40)
+        self.present()
+
+    # ---------------------------------------------------------------- utilidades
+    @staticmethod
+    def screen_size():
+        display = Gdk.Display.get_default()
+        mon = display.get_primary_monitor() or display.get_monitor(0)
+        geo = mon.get_geometry()
+        return geo.width, geo.height
+
+    def quit(self):
+        Gtk.main_quit()
+
+    def cleanup(self):
+        try:
+            os.remove(PIDFILE)
+        except OSError:
+            pass
+
+    # ---------------------------------------------------------------- eventos
+    def on_focus_out(self, *_):
+        if self.had_focus:
+            GLib.timeout_add(250, self._maybe_quit)
+        return False
+
+    def _maybe_quit(self):
+        if not self.is_active():
+            self.quit()
+        return False
+
+    def on_key(self, _w, event):
+        if event.keyval == Gdk.KEY_Escape:
+            self.quit()
+            return True
+        return False
+
+    def on_action(self, _btn, cmd):
+        run_detached(cmd)
+        self.quit()
+
+    def refresh_eco_label(self):
+        on = read_conf().get("AMBXST_ECO", "0") == "1"
+        self.eco_btn.set_label("Econômico: ON" if on else "Econômico: OFF")
+        ctx = self.eco_btn.get_style_context()
+        (ctx.add_class if on else ctx.remove_class)("on")
+
+    def on_eco(self, _btn):
+        on = read_conf().get("AMBXST_ECO", "0") == "1"
+        write_conf("AMBXST_ECO", "0" if on else "1")
+        self.refresh_eco_label()
+        notify("Modo econômico", "Alterado. Use Energia > Reiniciar sessão gráfica para aplicar.")
+
+    def on_volume(self, scale):
+        v = int(scale.get_value())
+        try:
+            subprocess.Popen(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "%d%%" % v],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
+
+    def on_clear_notifications(self, _btn):
+        if shutil.which("dunstctl"):
+            subprocess.run(["dunstctl", "history-clear"], timeout=3,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.update_notifications()
+
+    # ---------------------------------------------------------------- atualização
+    def on_tick(self):
+        self.tick_n += 1
+        self.update_stats()
+        if self.tick_n % 3 == 0:
+            self.update_notifications()
+        if self.tick_n % 5 == 0:
+            self.check_net_async()
+        return True
+
+    def update_stats(self):
+        mi = mem_info()
+        if mi:
+            total, used = mi
+            frac = used / total
+            self.lbl_ram.set_text("RAM  %d / %d MB" % (used // 1024, total // 1024))
+            self.bar_ram.set_fraction(frac)
+        else:
+            self.lbl_ram.set_text("RAM  n/d")
+        cpu = self.cpu.percent()
+        if cpu is None:
+            self.lbl_cpu.set_text("CPU  n/d")
+        else:
+            self.lbl_cpu.set_text("CPU  %d%%" % int(cpu))
+            self.bar_cpu.set_fraction(cpu / 100.0)
+        net = {True: "online", False: "offline", None: "verificando..."}[self.net_state]
+        self.lbl_misc.set_text("Rede: %s   |   Ativo há %s" % (net, uptime_text()))
+
+    def update_notifications(self):
+        for child in self.n_box.get_children():
+            self.n_box.remove(child)
+        items = get_notifications()
+        if not items:
+            lab = Gtk.Label(label="Nenhuma notificação", xalign=0)
+            lab.get_style_context().add_class("dim")
+            self.n_box.pack_start(lab, False, False, 0)
+        for summary, body in items:
+            lab = Gtk.Label(xalign=0)
+            lab.set_line_wrap(True)
+            lab.set_max_width_chars(34)
+            lab.set_markup("<b>%s</b>\n<span size='small' foreground='#a58f8a'>%s</span>" % (
+                GLib.markup_escape_text(summary), GLib.markup_escape_text(body[:120])))
+            self.n_box.pack_start(lab, False, False, 0)
+        self.n_box.show_all()
+
+    def check_net_async(self):
+        def worker():
+            try:
+                s = socket.create_connection(("1.1.1.1", 53), timeout=1.0)
+                s.close()
+                state = True
+            except OSError:
+                state = False
+            GLib.idle_add(self._set_net, state)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _set_net(self, state):
+        self.net_state = state
+        return False
+
+
+def log_error(where):
+    import traceback
+    try:
+        path = os.path.join(HOME, ".cache/ambxst/panel.log")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a") as f:
+            f.write("--- %s ---\n%s\n" % (where, traceback.format_exc()))
+    except OSError:
+        pass
+
+
+def main():
+    if toggle_existing():
+        return 0
+    try:
+        with open(PIDFILE, "w") as f:
+            f.write(str(os.getpid()))
+    except OSError:
+        pass
+    try:
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    except Exception:  # CSS inválido não deve impedir o painel de abrir
+        log_error("css")
+    try:
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, Gtk.main_quit)
+        Panel()
+        Gtk.main()
+    except Exception:
+        log_error("painel")
+        notify("Infynit AI Panel", "Erro ao abrir o painel. No Termux: ambxst-logs panel")
+        try:
+            os.remove(PIDFILE)
+        except OSError:
+            pass
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

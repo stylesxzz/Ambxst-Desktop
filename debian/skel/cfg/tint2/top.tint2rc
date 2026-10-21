@@ -1,0 +1,134 @@
+# Infynit AI - barra superior (tint2). Cada item tem ação real.
+# Backgrounds (ids na ordem): 1=painel  2=botão salmão  3=ativo/chip escuro  4=urgente
+rounded = 16
+border_width = 1
+border_sides = TBLR
+background_color = #0d0909 72
+border_color = #3a2420 90
+background_color_hover = #0d0909 72
+border_color_hover = #3a2420 90
+background_color_pressed = #0d0909 72
+border_color_pressed = #3a2420 90
+
+rounded = 12
+border_width = 0
+border_sides = TBLR
+background_color = #ff8f7a 100
+border_color = #ff8f7a 100
+background_color_hover = #ffb4a2 100
+border_color_hover = #ffb4a2 100
+background_color_pressed = #e0201b 100
+border_color_pressed = #e0201b 100
+
+rounded = 18
+border_width = 1
+border_sides = TBLR
+background_color = #181111 68
+border_color = #ff8f7a 55
+background_color_hover = #3a2420 80
+border_color_hover = #ff8f7a 100
+background_color_pressed = #3a2420 80
+border_color_pressed = #ff8f7a 100
+
+rounded = 12
+border_width = 1
+border_sides = TBLR
+background_color = #e0201b 100
+border_color = #ff5a4d 100
+background_color_hover = #e0201b 100
+border_color_hover = #ff5a4d 100
+background_color_pressed = #e0201b 100
+border_color_pressed = #ff5a4d 100
+
+#-------------------------------------
+# Painel
+panel_items = PFCFESP
+panel_size = 98% 40
+panel_margin = 0 6
+panel_padding = 14 3 8
+panel_background_id = 1
+wm_menu = 1
+panel_dock = 0
+panel_position = top center horizontal
+panel_layer = top
+panel_monitor = all
+panel_shrink = 0
+autohide = 0
+strut_policy = follow_size
+panel_window_name = ambxst-top
+disable_transparency = 0
+mouse_effects = 0
+font_shadow = 0
+mouse_left = none
+mouse_middle = none
+mouse_right = none
+mouse_scroll_up = none
+mouse_scroll_down = none
+
+#-------------------------------------
+# Botão AMBXST (abre o painel)
+button = new
+button_text = AMBXST
+button_font = JetBrains Mono Bold 10
+button_font_color = #1a0d0b 100
+button_padding = 14 4 0
+button_background_id = 2
+button_centered = 1
+button_tooltip = Painel Infynit AI
+button_lclick_command = /home/ambxst/.local/bin/ambxst-panel
+
+#-------------------------------------
+# Relógio
+time1_format = %H:%M
+time1_font = JetBrains Mono Bold 11
+time2_format = %a %d %b
+time2_font = JetBrains Mono 8
+clock_font_color = #f5e6e2 100
+clock_padding = 12 0
+clock_background_id = 0
+clock_tooltip = %A, %d de %B de %Y
+clock_lclick_command = /home/ambxst/.local/bin/ambxst-panel
+
+#-------------------------------------
+# Executor: RAM + conexão
+execp = new
+execp_command = /home/ambxst/.local/bin/ambxst-sysinfo
+execp_interval = 6
+execp_has_icon = 0
+execp_continuous = 0
+execp_markup = 1
+execp_centered = 1
+execp_font = JetBrains Mono 9
+execp_font_color = #f5e6e2 100
+execp_padding = 10 0
+execp_background_id = 0
+execp_lclick_command = /home/ambxst/.local/bin/ambxst-panel
+
+#-------------------------------------
+# Bandeja do sistema
+systray_padding = 6 3 6
+systray_background_id = 0
+systray_sort = ascending
+systray_icon_size = 22
+systray_icon_asb = 100 0 0
+
+#-------------------------------------
+# Tooltips
+tooltip_show_timeout = 0.5
+tooltip_hide_timeout = 0.1
+tooltip_padding = 6 4
+tooltip_background_id = 3
+tooltip_font = JetBrains Mono 9
+tooltip_font_color = #f5e6e2 100
+
+#-------------------------------------
+# Botão Sair (reiniciar / encerrar sessão gráfica)
+button = new
+button_text = Sair
+button_font = JetBrains Mono Bold 10
+button_font_color = #f5e6e2 100
+button_padding = 12 4 0
+button_background_id = 4
+button_centered = 1
+button_tooltip = Reiniciar ou encerrar a sessão gráfica
+button_lclick_command = /home/ambxst/.local/bin/ambxst-power

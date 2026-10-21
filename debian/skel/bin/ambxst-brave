@@ -1,0 +1,8 @@
+#!/bin/bash
+# ambxst-brave - abre o Brave (flags necessárias dentro do proot); avisa se não estiver instalado.
+BIN=$(command -v brave-browser || command -v brave-browser-stable)
+if [ -z "$BIN" ]; then
+  notify-send -i brave-browser "Brave não instalado" "No Termux rode: ambxst-browser-install brave" 2>/dev/null
+  exit 1
+fi
+exec "$BIN" --no-sandbox --disable-gpu --disable-dev-shm-usage --password-store=basic --ozone-platform=x11 "$@"

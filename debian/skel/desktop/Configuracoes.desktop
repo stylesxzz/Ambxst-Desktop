@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Configurações
+Exec=/home/ambxst/.local/bin/ambxst-settings
+Icon=preferences-system
+Terminal=false

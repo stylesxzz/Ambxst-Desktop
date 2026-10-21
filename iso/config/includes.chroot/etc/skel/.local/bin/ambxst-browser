@@ -1,0 +1,7 @@
+#!/bin/bash
+# ambxst-browser (PC) - abre o Firefox ESR (ou outro navegador que existir).
+for b in firefox-esr firefox chromium brave-browser; do
+  command -v "$b" >/dev/null 2>&1 && exec "$b" "$@"
+done
+notify-send -i web-browser "Navegador não instalado" "Instale um navegador: sudo apt install firefox-esr" 2>/dev/null
+exit 1

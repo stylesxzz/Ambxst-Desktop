@@ -1,0 +1,34 @@
+#!/bin/bash
+# ambxst-trash - lixeira: abrir ou esvaziar. Excluir um arquivo = "Mover para a lixeira" no pcmanfm (tecla Delete).
+TRASH="$HOME/.local/share/Trash"
+UID_=$(id -u)
+count=$(find "$TRASH/files" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)
+
+open_trash() {
+  if [ -x /usr/lib/gvfs/gvfsd-trash ]; then exec pcmanfm "trash:///"; fi
+  mkdir -p "$TRASH/files"; exec pcmanfm "$TRASH/files"
+}
+
+empty_trash() {
+  [ -d "$TRASH/files" ] || { notify-send -i user-trash "Lixeira" "A lixeira já está vazia." 2>/dev/null; return 0; }
+  command -v gio >/dev/null 2>&1 && gio trash --empty >/dev/null 2>&1
+  # Remove sobras (arquivos órfãos sem .trashinfo) somente dentro da lixeira do usuário.
+  find "$TRASH/files" -mindepth 1 -delete 2>/dev/null
+  [ -d "$TRASH/info" ] && find "$TRASH/info" -mindepth 1 -delete 2>/dev/null
+  notify-send -i user-trash "Lixeira" "Lixeira esvaziada." 2>/dev/null
+}
+
+[ "${1:-}" = "--open" ] && open_trash
+[ "${1:-}" = "--empty" ] && { empty_trash; exit 0; }
+
+pkill -u "$UID_" -x rofi 2>/dev/null
+choice=$(printf '%s\n' "Abrir lixeira ($count itens)" "Esvaziar lixeira" "Cancelar" \
+  | rofi -dmenu -i -no-custom -p "Lixeira" -theme-str 'window{width:480px;} listview{lines:3;}')
+case "$choice" in
+  Abrir*) open_trash ;;
+  Esvaziar*)
+    [ "$count" = 0 ] && { notify-send -i user-trash "Lixeira" "A lixeira já está vazia." 2>/dev/null; exit 0; }
+    ok=$(printf '%s\n' "Sim, excluir $count itens para sempre" "Não, cancelar" \
+      | rofi -dmenu -i -no-custom -p "Confirmar" -theme-str 'window{width:520px;} listview{lines:2;}')
+    case "$ok" in Sim*) empty_trash ;; esac ;;
+esac

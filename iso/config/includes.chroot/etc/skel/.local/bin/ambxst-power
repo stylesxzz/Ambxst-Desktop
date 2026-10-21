@@ -1,0 +1,14 @@
+#!/bin/bash
+# ambxst-power (PC) - bloquear, encerrar sessão, suspender, reiniciar ou desligar o computador.
+pkill -u "$(id -u)" -x rofi 2>/dev/null
+choice=$(printf '%s\n' "Bloquear tela" "Encerrar sessão" "Suspender" "Reiniciar o computador" "Desligar o computador" "Reiniciar interface" "Cancelar" \
+  | rofi -dmenu -i -no-custom -p "Energia" -theme-str 'window{width:480px;} listview{lines:7;}')
+case "$choice" in
+  Bloquear*)   exec "$HOME/.local/bin/ambxst-login" --lock ;;
+  Encerrar*)   exec openbox --exit ;;
+  Suspender*)  exec systemctl suspend ;;
+  "Reiniciar o computador"*) exec systemctl reboot ;;
+  Desligar*)   exec systemctl poweroff ;;
+  "Reiniciar interface"*) exec "$HOME/.local/bin/ambxst-restart-ui" ;;
+  *) exit 0 ;;
+esac

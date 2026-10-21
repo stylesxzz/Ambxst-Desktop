@@ -1,0 +1,20 @@
+#!/bin/bash
+# ambxst-sysinfo - texto (pango) para o executor da barra superior: RAM e conexão.
+total=$(awk '/MemTotal/{print $2}' /proc/meminfo 2>/dev/null)
+avail=$(awk '/MemAvailable/{print $2}' /proc/meminfo 2>/dev/null)
+if [ -n "$total" ] && [ "$total" -gt 0 ] 2>/dev/null; then
+  pct=$(( (total - avail) * 100 / total ))
+  ram="RAM ${pct}%"
+else
+  ram="RAM n/d"
+fi
+cache="/tmp/ambxst-net.$(id -u)"
+now=$(date +%s)
+last=0; state=""
+[ -f "$cache" ] && { last=$(cut -d' ' -f1 "$cache"); state=$(cut -d' ' -f2 "$cache"); }
+if [ -z "$state" ] || [ $((now - last)) -gt 20 ]; then
+  if timeout 1 bash -c 'exec 3<>/dev/tcp/1.1.1.1/53' 2>/dev/null; then state=on; else state=off; fi
+  echo "$now $state" > "$cache"
+fi
+if [ "$state" = on ]; then net="<span foreground='#7ee0a0'>● online</span>"; else net="<span foreground='#ff5a4d'>● offline</span>"; fi
+echo "<span foreground='#ff8f7a'>${ram}</span>   ${net}"

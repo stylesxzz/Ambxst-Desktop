@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Aplicativos
+Exec=/home/ambxst/.local/bin/ambxst-menu
+Icon=start-here
+Terminal=false

@@ -1,0 +1,144 @@
+#!/bin/bash
+# ambxst-wallpaper [arquivo] - troca o papel de parede (sem argumento: abre seletor).
+# Cada passo é registrado em ~/.cache/ambxst/wallpaper.log (Termux: ambxst-logs wallpaper).
+WALLDIR="$HOME/Pictures/Wallpapers"
+STATE="$HOME/.config/ambxst/wallpaper"
+PCONF="$HOME/.config/pcmanfm/default/desktop-items-0.conf"
+CACHE="$HOME/.cache/ambxst"
+LOG="$CACHE/wallpaper.log"
+UID_=$(id -u)
+mkdir -p "$WALLDIR" "$(dirname "$STATE")" "$CACHE"
+
+log()    { printf '[%s] %s\n' "$(date '+%F %T')" "$*" >> "$LOG"; }
+notify() { notify-send -i preferences-desktop-wallpaper "Papel de parede" "$1" 2>/dev/null; }
+desktop_running() { pgrep -u "$UID_" -f "pcmanfm --desktop" >/dev/null 2>&1; }
+
+# Confere se o GdkPixbuf (o mesmo carregador do pcmanfm) abre a imagem e reduz imagens enormes.
+# Saída: "PATH:<arquivo a usar>" | "BAD:<motivo>" | "SKIP:<motivo>"
+prepare_image() {
+  python3 - "$1" "$CACHE" <<'PY'
+import os, sys
+src, cache = sys.argv[1], sys.argv[2]
+try:
+    import gi
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import GdkPixbuf
+except Exception as exc:
+    print("SKIP:%s" % exc); sys.exit(0)
+try:
+    info = GdkPixbuf.Pixbuf.get_file_info(src)
+    fmt, w, h = (info[0], info[1], info[2]) if isinstance(info, tuple) else (None, 0, 0)
+    if fmt is None:
+        print("BAD:formato não suportado (arquivo pode ser WebP/AVIF renomeado para .jpg)"); sys.exit(0)
+    if max(w, h) > 3000:
+        pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(src, 2560, 2560, True)
+        out = os.path.join(cache, "wallpaper-scaled.jpg")
+        pb.savev(out, "jpeg", ["quality"], ["90"])
+        print("PATH:%s" % out); sys.exit(0)
+    print("PATH:%s" % src)
+except Exception as exc:
+    print("BAD:%s" % exc)
+PY
+}
+
+# Grava wallpaper/modo no grupo [*] do desktop-items-0.conf (preserva o resto do arquivo).
+write_desktop_conf() {
+  mkdir -p "$(dirname "$PCONF")"
+  python3 - "$PCONF" "$1" <<'PY'
+import sys
+p, f = sys.argv[1], sys.argv[2]
+try:
+    lines = open(p).read().splitlines()
+except OSError:
+    lines = []
+if not any(l.strip() == "[*]" for l in lines):
+    lines.insert(0, "[*]")
+want = {"wallpaper": f, "wallpaper_mode": "crop", "wallpaper_common": "1"}
+out, seen, ingroup = [], set(), False
+def flush():
+    for k, v in want.items():
+        if k not in seen:
+            out.append("%s=%s" % (k, v))
+for l in lines:
+    s = l.strip()
+    if s.startswith("[") and s.endswith("]"):
+        if ingroup:
+            flush()
+        ingroup = (s == "[*]")
+        seen = set()
+        out.append(l)
+        continue
+    if ingroup and "=" in l:
+        k = l.split("=", 1)[0].strip()
+        if k in want:
+            out.append("%s=%s" % (k, want[k]))
+            seen.add(k)
+            continue
+    out.append(l)
+if ingroup:
+    flush()
+open(p, "w").write("\n".join(out) + "\n")
+PY
+}
+
+# O --set-wallpaper do pcmanfm nem sempre repinta; o método confiável é parar o desktop,
+# gravar a configuração e iniciá-lo de novo (os ícones piscam por ~1 s).
+restart_desktop() {
+  log "parando pcmanfm --desktop"
+  pcmanfm --profile default --desktop-off >/dev/null 2>&1
+  for _ in 1 2 3 4 5 6; do desktop_running || break; sleep 0.5; done
+  pkill -u "$UID_" -f "pcmanfm --desktop" 2>/dev/null
+  sleep 0.3
+  write_desktop_conf "$1"
+  log "iniciando pcmanfm --desktop com wallpaper=$1"
+  nohup pcmanfm --desktop --profile default >>"$LOG" 2>&1 &
+  for _ in 1 2 3 4 5 6; do desktop_running && return 0; sleep 0.5; done
+  return 1
+}
+
+apply() {
+  local src="$1" out f
+  log "pedido: $src"
+  if [ ! -f "$src" ]; then log "ERRO: arquivo não existe"; notify "Arquivo não encontrado: $src"; exit 1; fi
+  out=$(prepare_image "$src")
+  log "validação: $out"
+  case "$out" in
+    BAD:*) notify "Não consegui abrir a imagem: ${out#BAD:}"; exit 1 ;;
+    PATH:*) f="${out#PATH:}" ;;
+    *) f="$src" ;;
+  esac
+  printf '%s\n' "$src" > "$STATE"
+  if desktop_running; then
+    if restart_desktop "$f"; then
+      if grep -qxF "wallpaper=$f" "$PCONF"; then
+        log "OK: desktop reiniciado e configuração conferida"; notify "$(basename "$src") aplicado"
+      else
+        log "AVISO: configuração não confere após reinício"; notify "Aplicado, mas a configuração não confere (ambxst-logs wallpaper)"
+      fi
+    else
+      log "ERRO: pcmanfm --desktop não voltou; usando feh"
+      feh --no-fehbg --bg-fill "$f" >>"$LOG" 2>&1
+      notify "pcmanfm não reiniciou; usei o feh (ícones do desktop podem estar ocultos)"
+    fi
+  else
+    write_desktop_conf "$f"
+    feh --no-fehbg --bg-fill "$f" >>"$LOG" 2>&1
+    log "OK via feh (desktop do pcmanfm não está ativo)"
+    notify "$(basename "$src") aplicado"
+  fi
+}
+
+if [ -n "${1:-}" ]; then apply "$1"; exit 0; fi
+
+pkill -u "$UID_" -x rofi 2>/dev/null
+OTHER="Procurar outro arquivo..."
+list=$(find "$WALLDIR" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) -printf '%f\n' 2>/dev/null | sort)
+choice=$(printf '%s\n%s\n' "$list" "$OTHER" | sed '/^$/d' | rofi -dmenu -i -no-custom -p "Papel de parede" -theme-str 'window{width:560px;} listview{lines:5;}')
+[ -z "$choice" ] && exit 0
+if [ "$choice" = "$OTHER" ]; then
+  start="$HOME/Android/"; [ -d "$start" ] || start="$HOME/"
+  f=$(zenity --file-selection --title="Escolher papel de parede" --filename="$start" 2>/dev/null) || exit 0
+  [ -n "$f" ] && apply "$f"
+else
+  apply "$WALLDIR/$choice"
+fi

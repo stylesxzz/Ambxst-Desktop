@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Red Team
+Comment=Lista de ferramentas Red Team (Nmap, Hydra, SQLMap, Nikto) - escolha uma para instalar e abrir
+Exec=/home/ambxst/.local/bin/ambxst-apps redteam
+Icon=/home/ambxst/.local/share/ambxst/icons/ambxst-redteam.svg
+Terminal=false
+Categories=Security;Development;
+Keywords=redteam;pentest;ataque;nmap;hydra;sqlmap;nikto;

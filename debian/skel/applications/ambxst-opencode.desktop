@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=OpenCode
+Comment=Instala (1º toque) e abre o OpenCode, agente de código open source
+Exec=/home/ambxst/.local/bin/ambxst-apps opencode
+Icon=/home/ambxst/.local/share/ambxst/icons/ambxst-opencode.svg
+Terminal=false
+Categories=Development;ConsoleOnly;
+Keywords=opencode;ia;ai;codigo;code;agente;

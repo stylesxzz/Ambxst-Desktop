@@ -1,0 +1,34 @@
+ATALHOS DO AMBXST DESKTOP
+=========================
+Barra superior:  AMBXST = painel (calendário, sistema, notificações, atalhos)
+                 relógio = abre o painel   |   Sair = reiniciar/encerrar sessão
+Dock (inferior): menu Iniciar, categorias, terminal, arquivos, editor, papel de parede,
+                 configurações, energia + lista de janelas abertas (toque alterna/minimiza)
+
+Teclado (teclado Bluetooth ou barra de teclas extras do Termux:X11):
+  Super + Espaço     Menu Iniciar (busca de aplicativos)
+  Super + C          Categorias de aplicativos
+  Super + E          Gerenciador de arquivos
+  Super + P          Painel Infynit AI
+  Ctrl + Alt + T     Terminal
+  Alt + Tab          Alternar janelas (Shift = sentido contrário)
+  Alt + F4           Fechar janela
+  Super + D          Mostrar área de trabalho
+  Super + Setas      Maximizar / restaurar / minimizar
+
+Toque (Termux:X11): toque = clique; segurar ou toque com dois dedos = clique direito
+(depende do modo escolhido em Preferences do Termux:X11); arrastar com dois dedos = rolagem.
+
+Login: a sessão pede uma conta (usuário + senha) na 1ª vez e a senha nas próximas.
+  É uma trava local do desktop, não a senha do Linux/Termux. Esqueceu a senha? No
+  Termux: pkill -f ambxst-login; rm ~/.config/ambxst/auth.json  -  depois ambxst-restart.
+  Bloquear a tela manualmente: Energia > Bloquear tela.
+
+Ferramentas (painel AMBXST > Ferramentas, menu Aplicativos ou botão direito):
+  Claude Code, OpenCode, Shannon, GitBot, Filmes e Animes  -  1º toque instala, depois abre.
+  No terminal: ambxst-apps claude-code | opencode | shannon | gitbot | media | status
+
+Segurança (painel AMBXST > Segurança, menu Aplicativos ou botão direito):
+  OSINT, Red Team, Blue Team, Purple Team  -  cada botão abre uma lista de ferramentas;
+  escolher uma instala (1ª vez) e abre um terminal pronto para usá-la.
+  No terminal: ambxst-apps osint | redteam | blueteam | purpleteam | status

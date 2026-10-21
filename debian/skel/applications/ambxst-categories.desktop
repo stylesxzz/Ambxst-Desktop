@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Categorias
+Comment=Categorias (Infynit AI)
+Exec=/home/ambxst/.local/bin/ambxst-categories
+Icon=applications-other
+Terminal=false
+Categories=System;

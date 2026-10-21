@@ -1,0 +1,13 @@
+[Unit]
+Description=Infynit AI: login automático no modo live
+ConditionKernelCommandLine=boot=live
+After=live-config.service
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/infynit-live-autologin
+
+[Install]
+WantedBy=graphical.target

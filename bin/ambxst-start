@@ -1,0 +1,142 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# ambxst-start - inicia Termux:X11 + sessão Debian/Openbox. (roda no TERMUX)
+set -u
+LIB="${AMBXST_HOME:-$HOME/.ambxst}/lib/common.sh"
+[ -f "$LIB" ] || { echo "Infynit AI não está instalado (falta $LIB). Rode install-ambxst.sh." >&2; exit 1; }
+# shellcheck source=/dev/null
+. "$LIB"
+
+usage() {
+  cat <<U
+Uso: ambxst-start [--eco] [--no-open]
+  --eco       liga o modo econômico (persistente; desligue com: ambxst-eco off)
+  --no-open   não abre o app Termux:X11 automaticamente
+U
+}
+
+supervise() {
+  # Roda em segundo plano: mantém a sessão Debian viva e limpa tudo no fim.
+  echo $$ > "$AMBXST_RUN/supervisor.pid"
+  local args=() storage
+  args=(login "$AMBXST_DISTRO" --user "$AMBXST_USER" --shared-tmp)
+  storage=$(readlink -f "$HOME/storage/shared" 2>/dev/null || true)
+  if [ -n "$storage" ] && [ -d "$storage" ] && ls "$storage" >/dev/null 2>&1; then
+    args+=(--bind "$storage:/home/$AMBXST_USER/Android")
+  fi
+  args+=(--bind "$HOME:/home/$AMBXST_USER/Termux")
+  args+=(-- env "DISPLAY=$AMBXST_DISPLAY" "PULSE_SERVER=127.0.0.1" "AMBXST_FROM_TERMUX=1" \
+         "/home/$AMBXST_USER/.local/bin/ambxst-session")
+  echo "[$(date '+%F %T')] iniciando sessão: proot-distro ${args[*]}" >> "$AMBXST_LOGS/proot.log"
+  # Vigia de pacotes: atende os botões "Instalar" do desktop que precisam de root (apt). Morre com a sessão.
+  rootjobs_watch >/dev/null 2>&1 &
+  local rj=$!
+  echo "$rj" > "$AMBXST_RUN/rootjobs.pid"
+  proot-distro "${args[@]}" >> "$AMBXST_LOGS/proot.log" 2>&1
+  local rc=$?
+  kill_tree "$rj" TERM; rm -f "$AMBXST_RUN/rootjobs.pid"
+  echo "[$(date '+%F %T')] sessão encerrada (rc=$rc)" >> "$AMBXST_LOGS/proot.log"
+  stop_x11
+  rm -f "$AMBXST_RUN/supervisor.pid"
+}
+
+NO_OPEN=0; SUPERVISE=0
+for a in "$@"; do
+  case "$a" in
+    --no-open) NO_OPEN=1 ;;
+    --eco) require_installed; set_conf AMBXST_ECO 1; info "Modo econômico ligado." ;;
+    -h|--help) usage; exit 0 ;;
+    __supervise) SUPERVISE=1 ;;
+    *) warn "Opção desconhecida: $a"; usage; exit 2 ;;
+  esac
+done
+
+if [ "$SUPERVISE" = 1 ]; then supervise; exit 0; fi
+
+# ---------------------------------------------------------------- pré-requisitos
+require_installed
+for c in termux-x11 proot-distro pgrep; do
+  command -v "$c" >/dev/null 2>&1 || { err "Comando ausente no Termux: $c  ->  rode ambxst-fix"; exit 1; }
+done
+[ -x "$AMBXST_ROOTFS/home/$AMBXST_USER/.local/bin/ambxst-session" ] || {
+  err "Script de sessão ausente dentro do Debian. Rode: ambxst-fix"; exit 1; }
+
+# ---------------------------------------------------------------- já está rodando?
+SP=$(session_pid || true)
+if [ -n "$SP" ] && x11_running; then
+  ok "Infynit AI já está em execução (supervisor PID $SP)."
+  [ "$NO_OPEN" = 1 ] || open_x11_app
+  info "Abra/volte ao app Termux:X11 para ver o desktop."
+  exit 0
+fi
+if [ -n "$SP" ] && ! x11_running; then
+  warn "Sessão antiga sem servidor X (PID $SP). Limpando só os processos dela..."
+  kill_tree "$SP" TERM; sleep 1; pid_alive "$SP" && kill_tree "$SP" KILL
+  rm -f "$AMBXST_RUN/supervisor.pid"
+fi
+
+# ---------------------------------------------------------------- áudio (opcional)
+ECO=$(get_conf AMBXST_ECO 0)
+if [ "$(get_conf AMBXST_AUDIO 1)" = 1 ] && [ "$ECO" != 1 ] && command -v pulseaudio >/dev/null 2>&1; then
+  if ! pulseaudio --check >/dev/null 2>&1; then
+    if pulseaudio --start --exit-idle-time=-1 \
+        --load="module-native-protocol-tcp auth-ip-anonymous=1 listen=127.0.0.1" >/dev/null 2>&1; then
+      touch "$AMBXST_RUN/pulse.started"; ok "PulseAudio iniciado (somente 127.0.0.1)."
+    else
+      warn "PulseAudio não iniciou; o desktop funciona sem som."
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------- servidor Termux:X11
+if x11_running; then
+  info "Servidor Termux:X11 já está ativo; reutilizando."
+else
+  if [ -e "$X11_SOCKET" ]; then
+    warn "Socket X antigo sem servidor ($X11_SOCKET); removendo."
+    rm -f "$X11_SOCKET" "$AMBXST_TMP/.X0-lock"
+  fi
+  DPI=$(get_conf AMBXST_DPI 120)
+  XARGS=$(get_conf AMBXST_X11_ARGS "-ac")
+  info "Iniciando servidor Termux:X11 em $AMBXST_DISPLAY (dpi $DPI)..."
+  # shellcheck disable=SC2086
+  nohup termux-x11 "$AMBXST_DISPLAY" $XARGS -dpi "$DPI" > "$AMBXST_LOGS/x11.log" 2>&1 &
+  echo $! > "$AMBXST_RUN/x11.pid"
+  for _ in $(seq 1 40); do [ -S "$X11_SOCKET" ] && break; sleep 0.5; done
+  if [ ! -S "$X11_SOCKET" ]; then
+    err "O servidor X não criou o socket em 20 s ($X11_SOCKET)."
+    err "Últimas linhas de $AMBXST_LOGS/x11.log:"; tail -n 15 "$AMBXST_LOGS/x11.log" >&2
+    err "Verifique se o app Termux:X11 (APK) está instalado e se o pacote termux-x11-nightly é da mesma versão. Rode: ambxst-fix"
+    stop_x11; exit 1
+  fi
+  ok "Socket X criado: $X11_SOCKET"
+fi
+
+# ---------------------------------------------------------------- app Termux:X11
+if [ "$NO_OPEN" = 0 ]; then
+  if open_x11_app; then ok "App Termux:X11 aberto."; else warn "Não consegui abrir o app Termux:X11; abra-o manualmente."; fi
+fi
+
+# ---------------------------------------------------------------- sessão Debian
+SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")
+nohup "$SELF" __supervise >/dev/null 2>&1 &
+info "Iniciando sessão Debian (Openbox + painéis)..."
+
+UP=0
+for _ in $(seq 1 60); do
+  SP=$(session_pid || true)
+  if [ -z "$SP" ] && [ -f "$AMBXST_RUN/supervisor.pid" ]; then break; fi
+  if pgrep -x openbox >/dev/null 2>&1; then UP=1; break; fi
+  sleep 0.5
+done
+
+if [ "$UP" = 1 ]; then
+  sleep 2
+  ok "Desktop no ar. Alterne para o app Termux:X11."
+  pgrep -x tint2 >/dev/null 2>&1 || warn "tint2 (barras) ainda não apareceu; aguarde alguns segundos ou rode ambxst-status."
+  exit 0
+fi
+err "O Openbox não subiu. Últimas linhas do log da sessão:"
+tail -n 20 "$SESSION_LOG" 2>/dev/null >&2 || true
+tail -n 10 "$AMBXST_LOGS/proot.log" 2>/dev/null >&2 || true
+err "Rode: ambxst-fix   e   ambxst-logs"
+exit 1

@@ -1,0 +1,47 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# ambxst-logs [x11|proot|session|panel|autostart|wallpaper|stop|install|all] [-f] [-n LINHAS]  (roda no TERMUX)
+set -u
+LIB="${AMBXST_HOME:-$HOME/.ambxst}/lib/common.sh"
+[ -f "$LIB" ] || { echo "Infynit AI não instalado." >&2; exit 1; }
+# shellcheck source=/dev/null
+. "$LIB"
+
+WHICH="all"; FOLLOW=0; N=40
+while [ $# -gt 0 ]; do
+  case "$1" in
+    x11|proot|session|panel|autostart|wallpaper|stop|install|all) WHICH="$1" ;;
+    -f) FOLLOW=1 ;;
+    -n) shift; N="${1:-40}" ;;
+    -h|--help) echo "Uso: ambxst-logs [x11|proot|session|panel|autostart|wallpaper|stop|install|all] [-f] [-n LINHAS]"; exit 0 ;;
+    *) err "Argumento inválido: $1"; exit 2 ;;
+  esac
+  shift
+done
+
+file_for() {
+  case "$1" in
+    x11)     echo "$AMBXST_LOGS/x11.log" ;;
+    proot)   echo "$AMBXST_LOGS/proot.log" ;;
+    stop)    echo "$AMBXST_LOGS/stop.log" ;;
+    install) echo "$AMBXST_LOGS/install.log" ;;
+    session) echo "$SESSION_LOG" ;;
+    panel) echo "$(dirname "$SESSION_LOG")/panel.log" ;;
+    wallpaper) echo "$(dirname "$SESSION_LOG")/wallpaper.log" ;;
+    autostart) echo "$(dirname "$SESSION_LOG")/autostart.log" ;;
+  esac
+}
+show() {
+  local f; f=$(file_for "$1")
+  printf '%s===== %s (%s) =====%s\n' "$C_B" "$1" "$f" "$C_0"
+  if [ -f "$f" ]; then tail -n "$N" "$f"; else echo "(sem log ainda)"; fi
+  echo
+}
+
+if [ "$WHICH" = all ]; then
+  for w in x11 proot session autostart panel; do show "$w"; done
+  exit 0
+fi
+if [ "$FOLLOW" = 1 ]; then
+  f=$(file_for "$WHICH"); info "Seguindo $f (Ctrl+C para sair)"; exec tail -n "$N" -F "$f"
+fi
+show "$WHICH"

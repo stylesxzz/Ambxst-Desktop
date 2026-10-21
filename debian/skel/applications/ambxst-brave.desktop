@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Brave
+Exec=/home/ambxst/.local/bin/ambxst-brave
+Icon=brave-browser
+Terminal=false
+Categories=Network;WebBrowser;

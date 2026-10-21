@@ -1,0 +1,10 @@
+# Infynit AI
+*.zip
+*.log
+*.bak-*
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+iso/out/
+iso/work/
